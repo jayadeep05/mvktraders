@@ -1,0 +1,33 @@
+spring:
+  application:
+    name: investment-analytics
+  datasource:
+    url: jdbc:mysql://localhost:3306/investment_analysis
+    # username: root
+    # password: "#JAYA1708!!"
+    username: app_user
+    password: "mSRINIVAS777!!"
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQL8Dialect
+        format_sql: true
+    show-sql: true
+  
+logging:
+  level:
+    com.enterprise.investmentanalytics: DEBUG
+    org.springframework.web: INFO
+
+server:
+  port: 8080
+  error:
+    include-message: always
+
+jwt:
+  secret: verysecretkeythatshouldbechangedinproductionandmustbelongenoughforhs512
+  expiration: 86400000 # 24 hours
+  refresh-expiration: 604800000 # 7 days

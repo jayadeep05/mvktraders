@@ -1,0 +1,9 @@
+curl -X POST http://localhost:8080/api/auth/register \
+-H "Content-Type: application/json" \
+-d '{
+  "name": "Super Admin",
+  "email": "admin@enterprise.com",
+  "password": "admin123",
+  "role": "ADMIN",
+  "mobile": "0000000000"
+}'

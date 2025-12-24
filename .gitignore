@@ -1,0 +1,61 @@
+# General
+.DS_Store
+*.log
+logs/
+temp/
+tmp/
+*.swp
+*.pem
+.idea/
+.vscode/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Java / Maven
+target/
+*.class
+*.jar
+*.war
+*.ear
+mvnw
+mvnw.cmd
+.mvn/
+
+# Frontend (Vite/React)
+frontend/dist/
+frontend/.env
+frontend/.env.local
+frontend/.env.production
+frontend/.env.development
+frontend/coverage/
+
+# Mobile (Expo/React Native)
+mvktraders-mobile/.expo/
+mvktraders-mobile/dist/
+mvktraders-mobile/web-build/
+mvktraders-mobile/.env
+mvktraders-mobile/android/
+mvktraders-mobile/ios/
+# Note: android/ and ios/ are ignored because with Expo Prebuild we can regenerate them. 
+# If you have custom native code, remove these lines. 
+# But usually node_modules is enough to ignore. 
+# Actually, for a clean expo managed workflow, we ignore android/ and ios/ unless we ejected.
+# Given the detailed request, I will adhere to standard Expo gitignore:
+# https://docs.expo.dev/guides/git-ignore/
+
+# Secrets
+.env
+*.env
+application-prod.yml
+application-prod.yaml
+backend/backend.pem
+
+# Tools
+tools/
+
+backend_log.txt

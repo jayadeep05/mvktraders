@@ -1,10 +1,10 @@
 spring:
   datasource:
     url: jdbc:mysql://localhost:3306/investment_analysis
-    # username: root
-    # password: "#JAYA1708!!"
-    username: app_user
-    password: "mSRINIVAS777!!"
+    username: root
+    password: "#JAYA1708!!"
+    # username: app_user
+    # password: "mSRINIVAS777!!"
     driver-class-name: com.mysql.cj.jdbc.Driver
   jpa:
     database-platform: org.hibernate.dialect.MySQL8Dialect

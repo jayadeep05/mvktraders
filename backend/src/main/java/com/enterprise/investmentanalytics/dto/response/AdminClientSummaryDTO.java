@@ -31,5 +31,8 @@ public class AdminClientSummaryDTO {
     private ProfitAccrualStatus profitStatus;
     private BigDecimal availableProfit;
     private BigDecimal totalProfitEarned;
+    private String mediatorName;
+    private UUID mediatorId;
+    private String mediatorUserId;
 
 }

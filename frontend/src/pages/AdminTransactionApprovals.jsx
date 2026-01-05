@@ -5,7 +5,7 @@ import UserIdBadge from '../components/UserIdBadge';
 import { Check, X } from 'lucide-react';
 
 const AdminTransactionApprovals = () => {
-    // Level 1 Navigation: 'DEPOSIT' or 'WITHDRAWAL'
+    // Level 1 Navigation: 'DEPOSIT' | 'WITHDRAWAL' | 'PAYOUT'
     const [activeTab, setActiveTab] = useState('DEPOSIT');
 
     // Level 2 Filters: 'ALL' | 'PENDING' | 'APPROVED' | 'REJECTED'
@@ -42,14 +42,19 @@ const AdminTransactionApprovals = () => {
             setError('');
             let data = [];
             if (activeTab === 'DEPOSIT') {
-                // depositService might take a status param or return all. 
-                // Based on previous code: depositService.getAllRequests(status)
-                // We'll fetch ALL and filter client-side for "ALL" tab, 
-                // but the service might support direct filtering. 
-                // Let's fetch all to be safe and consistent with logic below.
                 data = await depositService.getAllRequests();
-            } else {
+            } else if (activeTab === 'WITHDRAWAL') {
                 data = await withdrawalService.getAllRequests();
+            } else if (activeTab === 'PAYOUT') {
+                // Fetch payout requests
+                const response = await fetch('/api/admin/payout-requests', {
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                if (!response.ok) throw new Error('Failed to fetch payout requests');
+                data = await response.json();
             }
             setRequests(data);
         } catch (error) {
@@ -72,8 +77,18 @@ const AdminTransactionApprovals = () => {
             setProcessingId(request.id);
             if (activeTab === 'DEPOSIT') {
                 await depositService.approveRequest(request.id);
-            } else {
+            } else if (activeTab === 'WITHDRAWAL') {
                 await withdrawalService.approveRequest(request.id);
+            } else if (activeTab === 'PAYOUT') {
+                // Approve payout request
+                const response = await fetch(`/api/admin/payout-requests/${request.id}/approve`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                if (!response.ok) throw new Error('Failed to approve payout');
             }
 
             // Refund/Refresh
@@ -99,15 +114,23 @@ const AdminTransactionApprovals = () => {
         try {
             setProcessingId(selectedRequest.id);
             if (activeTab === 'DEPOSIT') {
-                // Check if depositService.rejectRequest supports reason? 
-                // AdminDepositRequests.jsx didn't use reason. AdminWithdrawalRequests.jsx did.
-                // We will pass it if withdrawal, else just reject.
                 await depositService.rejectRequest(selectedRequest.id);
-            } else {
+            } else if (activeTab === 'WITHDRAWAL') {
                 await withdrawalService.rejectRequest(
                     selectedRequest.id,
                     rejectionReason || 'No reason provided'
                 );
+            } else if (activeTab === 'PAYOUT') {
+                // Reject payout request
+                const response = await fetch(`/api/admin/payout-requests/${selectedRequest.id}/reject`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ reason: rejectionReason || 'No reason provided' })
+                });
+                if (!response.ok) throw new Error('Failed to reject payout');
             }
 
             await fetchRequests();
@@ -166,13 +189,13 @@ const AdminTransactionApprovals = () => {
                     Transaction Approvals
                 </h1>
                 <p style={{ color: '#94a3b8', fontSize: '15px' }}>
-                    Manage client deposit and withdrawal requests
+                    Manage client deposit, withdrawal, and payout requests
                 </p>
             </div>
 
             {/* Level 1 Navigation (Tabs) */}
             <div className="admin-tabs" style={{ display: 'flex', gap: '24px', borderBottom: '1px solid rgba(148, 163, 184, 0.1)', marginBottom: '24px' }}>
-                {['DEPOSIT', 'WITHDRAWAL'].map(tab => (
+                {['DEPOSIT', 'WITHDRAWAL', 'PAYOUT'].map(tab => (
                     <button
                         key={tab}
                         onClick={() => { setActiveTab(tab); setFilterStatus('ALL'); }}
@@ -187,10 +210,10 @@ const AdminTransactionApprovals = () => {
                             cursor: 'pointer',
                             marginRight: '16px',
                             transition: 'all 0.2s',
-                            textTransform: 'capitalize' // Display as "Deposit" / "Withdrawal"
+                            textTransform: 'capitalize'
                         }}
                     >
-                        {tab === 'DEPOSIT' ? 'Deposits' : 'Withdrawals'}
+                        {tab === 'DEPOSIT' ? 'Deposits' : tab === 'WITHDRAWAL' ? 'Withdrawals' : 'Payouts'}
                     </button>
                 ))}
             </div>
@@ -279,12 +302,11 @@ const AdminTransactionApprovals = () => {
                                 filteredRequests.map(req => (
                                     <tr key={req.id} style={{ borderBottom: '1px solid rgba(148, 163, 184, 0.05)', transition: 'background 0.2s' }}>
                                         <td data-label="User ID" style={{ padding: '16px 24px', textAlign: 'center' }}>
-                                            <UserIdBadge userId={req.userId || req.user?.userId || '---'} />
+                                            <UserIdBadge userId={req.userIdString || req.userId || req.user?.userId || '---'} />
                                         </td>
                                         <td data-label="Client" style={{ padding: '16px 24px', color: '#f1f5f9', fontWeight: '500', textAlign: 'center' }}>
                                             <div className="responsive-align">
                                                 {req.userName || req.user?.name || 'Unknown'}
-                                                <div style={{ fontSize: '11px', color: '#64748b' }}>{req.userEmail || req.user?.email}</div>
                                             </div>
                                         </td>
                                         <td data-label="Amount" style={{ padding: '16px 24px', color: '#f1f5f9', fontWeight: '700', fontFamily: 'monospace', textAlign: 'center' }}>
@@ -387,13 +409,13 @@ const AdminTransactionApprovals = () => {
                         onClick={(e) => e.stopPropagation()}
                     >
                         <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#ffffff', marginBottom: '8px' }}>
-                            Reject {activeTab === 'DEPOSIT' ? 'Deposit' : 'Withdrawal'}
+                            Reject {activeTab === 'DEPOSIT' ? 'Deposit' : activeTab === 'WITHDRAWAL' ? 'Withdrawal' : 'Payout'}
                         </h2>
                         <p style={{ fontSize: '14px', color: '#94a3b8', marginBottom: '24px' }}>
                             Are you sure you want to reject this request?
                         </p>
 
-                        {activeTab === 'WITHDRAWAL' && (
+                        {(activeTab === 'WITHDRAWAL' || activeTab === 'PAYOUT') && (
                             <textarea
                                 value={rejectionReason}
                                 onChange={(e) => setRejectionReason(e.target.value)}

@@ -39,7 +39,7 @@ public class WithdrawalRequest {
     @Column(name = "rejection_reason", length = 500)
     private String rejectionReason;
 
-    @Column(name = "processed_by", length = 10)
+    @Column(name = "processed_by", length = 50)
     private String processedBy;
 
     @Column(name = "payment_mode", length = 50)

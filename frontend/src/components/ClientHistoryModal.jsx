@@ -7,10 +7,15 @@ const CustomDropdown = ({ value, onChange, options, icon: Icon, placeholder, min
     const [isOpen, setIsOpen] = useState(false);
     const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
     const dropdownRef = React.useRef(null);
+    const portalRef = React.useRef(null);
 
     useEffect(() => {
         const handleClickOutside = (event) => {
-            if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+            if (
+                dropdownRef.current &&
+                !dropdownRef.current.contains(event.target) &&
+                (!portalRef.current || !portalRef.current.contains(event.target))
+            ) {
                 setIsOpen(false);
             }
         };
@@ -61,7 +66,7 @@ const CustomDropdown = ({ value, onChange, options, icon: Icon, placeholder, min
             </button>
 
             {isOpen && createPortal(
-                <div style={{
+                <div ref={portalRef} style={{
                     position: 'fixed',
                     top: `${dropdownPosition.top}px`,
                     left: `${dropdownPosition.left}px`,
@@ -120,11 +125,21 @@ const CustomDropdown = ({ value, onChange, options, icon: Icon, placeholder, min
 };
 
 const ClientHistoryModal = ({ show, onClose, client }) => {
+    const [userRole, setUserRole] = useState(null);
     const [history, setHistory] = useState([]);
     const [loading, setLoading] = useState(false);
     const [filterType, setFilterType] = useState('ALL');
     const [filterStatus, setFilterStatus] = useState('COMPLETED');
     const [processingId, setProcessingId] = useState(null);
+
+    useEffect(() => {
+        const token = localStorage.getItem('token');
+        if (token) {
+            const payload = JSON.parse(atob(token.split('.')[1]));
+            const role = payload.rol ? payload.rol[0] : (payload.roles ? payload.roles[0] : null);
+            setUserRole(role);
+        }
+    }, []);
 
     useEffect(() => {
         const handleEsc = (event) => {
@@ -143,22 +158,45 @@ const ClientHistoryModal = ({ show, onClose, client }) => {
             document.body.style.overflow = 'unset';
             window.removeEventListener('keydown', handleEsc);
         };
-    }, [show, client, onClose]);
+    }, [show, client, onClose, userRole]); // Added userRole to dependencies
 
     const fetchHistory = async () => {
         setLoading(true);
         try {
-            const [depositsRes, withdrawalsRes, transactionsRes] = await Promise.allSettled([
-                api.get('/admin/deposit-requests'),
-                api.get('/admin/withdrawal-requests'),
-                api.get(`/admin/clients/${client.clientId}/transactions`)
-            ]);
+            const isMediator = userRole === 'ROLE_MEDIATOR' || userRole === 'MEDIATOR';
+            let depositsRes, withdrawalsRes, transactionsRes;
+
+            if (isMediator) {
+                // Mediator: Call specific endpoints using String UserID
+                const idParam = client.userId; // String ID (e.g., MVK001)
+
+                // If client.userId is undefined, fallback or error. 
+                // Note: client object usually has userId (string) and clientId (UUID).
+
+                [depositsRes, withdrawalsRes, transactionsRes] = await Promise.allSettled([
+                    api.get(`/mediator/client/${idParam}/deposit-requests`),
+                    api.get(`/mediator/client/${idParam}/withdrawal-requests`),
+                    api.get(`/mediator/client/${idParam}/transactions`)
+                ]);
+            } else {
+                // Admin: Call admin endpoints
+                [depositsRes, withdrawalsRes, transactionsRes] = await Promise.allSettled([
+                    api.get('/admin/deposit-requests'),
+                    api.get('/admin/withdrawal-requests'),
+                    api.get(`/admin/clients/${client.clientId}/transactions`)
+                ]);
+            }
 
             let merged = [];
 
             // Process Deposits
             if (depositsRes.status === 'fulfilled' && depositsRes.value.data) {
-                const userDeposits = depositsRes.value.data.filter(d => d.userId === client.clientId || d.user?.id === client.clientId);
+                // For Admin, we must filter. For Mediator, it's already filtered.
+                const rawDeposits = depositsRes.value.data;
+                const userDeposits = isMediator
+                    ? rawDeposits
+                    : rawDeposits.filter(d => d.userId === client.clientId || (d.user && d.user.id === client.clientId));
+
                 merged = [...merged, ...userDeposits.map(d => ({
                     ...d,
                     type: 'DEPOSIT',
@@ -169,12 +207,16 @@ const ClientHistoryModal = ({ show, onClose, client }) => {
 
             // Process Withdrawals
             if (withdrawalsRes.status === 'fulfilled' && withdrawalsRes.value.data) {
-                const userWithdrawals = withdrawalsRes.value.data.filter(w =>
-                    w.userId === client.clientId ||
-                    w.userId === client.userId ||
-                    (w.user && w.user.id === client.clientId) ||
-                    (w.user && w.user.userId === client.userId)
-                );
+                const rawWithdrawals = withdrawalsRes.value.data;
+                const userWithdrawals = isMediator
+                    ? rawWithdrawals
+                    : rawWithdrawals.filter(w =>
+                        w.userId === client.clientId ||
+                        w.userId === client.userId ||
+                        (w.user && w.user.id === client.clientId) ||
+                        (w.user && w.user.userId === client.userId)
+                    );
+
                 merged = [...merged, ...userWithdrawals.map(w => ({
                     ...w,
                     type: 'WITHDRAWAL',
@@ -183,8 +225,9 @@ const ClientHistoryModal = ({ show, onClose, client }) => {
                 }))];
             }
 
-            // Process Payouts
+            // Process Payouts/Transactions
             if (transactionsRes.status === 'fulfilled' && transactionsRes.value.data) {
+                // Transactions endpoint is always specific to the user (both Admin and Mediator versions)
                 const payouts = transactionsRes.value.data.filter(t => t.type === 'PAYOUT');
                 merged = [...merged, ...payouts.map(p => ({
                     ...p,
@@ -216,6 +259,9 @@ const ClientHistoryModal = ({ show, onClose, client }) => {
     });
 
     const handleApprove = async (item) => {
+        // Double check role
+        if (userRole === 'ROLE_MEDIATOR' || userRole === 'MEDIATOR') return;
+
         if (!window.confirm(`Approve this ${item.type.toLowerCase()} of ${formatCurrency(item.amount)}?`)) return;
         setProcessingId(item.id);
         try {
@@ -234,6 +280,8 @@ const ClientHistoryModal = ({ show, onClose, client }) => {
     };
 
     const handleReject = async (item) => {
+        if (userRole === 'ROLE_MEDIATOR' || userRole === 'MEDIATOR') return;
+
         let reason = "No reason provided";
         if (item.type === 'WITHDRAWAL') {
             reason = window.prompt("Enter rejection reason:", "Insufficient balance or invalid details");

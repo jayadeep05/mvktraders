@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { X, Wallet, TrendingUp, CheckCircle, Info, CalendarCheck, DollarSign, ArrowRight } from 'lucide-react';
 import { depositService } from '../services/api';
 
-const DepositRequestModal = ({ show, onClose, onSuccess, userId, portfolio, isAdmin = false }) => {
+const DepositRequestModal = ({ show, onClose, onSuccess, userId, userIdString, portfolio, isAdmin = false }) => {
     const [step, setStep] = useState(1); // 1: Input, 2: Confirm
     const [amountStr, setAmountStr] = useState('');
     const [error, setError] = useState('');
@@ -64,13 +64,22 @@ const DepositRequestModal = ({ show, onClose, onSuccess, userId, portfolio, isAd
 
     const handleSubmit = async () => {
         setSubmitting(true);
+        const token = localStorage.getItem('token');
+        let userRoles = [];
+        try {
+            userRoles = token ? (JSON.parse(atob(token.split('.')[1])).roles || []) : [];
+        } catch (e) {
+            console.error('Error parsing token roles', e);
+        }
+        const isMediator = Array.isArray(userRoles) && userRoles.includes('ROLE_MEDIATOR');
+
         try {
             let response;
-            if (isAdmin && userId) {
-                response = await depositService.createRequestForUser(userId, amount, 'Admin Initiated');
-            } else if (userId && (localStorage.getItem('token') && (JSON.parse(atob(localStorage.getItem('token').split('.')[1])).rol || []).includes('ROLE_MEDIATOR'))) {
+            if (isAdmin && (userIdString || userId)) {
+                response = await depositService.createRequestForUser(userIdString || userId, amount, 'Admin Initiated');
+            } else if (isMediator && (userIdString || userId)) {
                 const { mediatorService } = await import('../services/api');
-                response = await mediatorService.createDepositRequest(userId, amount, 'Mediator Initiated');
+                response = await mediatorService.createDepositRequest(userIdString || userId, amount, 'Mediator Initiated');
             } else {
                 response = await depositService.createRequest(amount, '');
             }

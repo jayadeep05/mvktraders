@@ -4,5 +4,7 @@ public enum TransactionType {
     CREDIT,
     DEBIT,
     PROFIT,
-    PAYOUT
+    PAYOUT,
+    DEPOSIT,
+    WITHDRAWAL
 }

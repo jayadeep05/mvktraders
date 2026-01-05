@@ -59,3 +59,4 @@ backend/backend.pem
 tools/
 
 backend_log.txt
+backend/uploads/

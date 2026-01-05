@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
     View,
     Text,
@@ -10,10 +10,10 @@ import {
     Platform,
     Alert
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context'; // Better than generic SafeAreaView
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
-import { colors } from '../../theme/colors';
+import { useTheme } from '../../context/ThemeContext';
 
 export default function LoginScreen() {
     const [email, setEmail] = useState('');
@@ -22,6 +22,8 @@ export default function LoginScreen() {
     const [loading, setLoading] = useState(false);
 
     const { login } = useAuth();
+    const { theme } = useTheme();
+    const styles = useMemo(() => getStyles(theme), [theme]);
 
     const handleLogin = async () => {
         if (!email || !password) {
@@ -32,7 +34,6 @@ export default function LoginScreen() {
         setLoading(true);
         try {
             await login(email, password);
-            // Navigation is handled by AppNavigator listening to auth state
         } catch (error) {
             const msg = error.response?.data?.message || error.message || 'Login failed';
             Alert.alert('Login Failed', msg);
@@ -61,11 +62,11 @@ export default function LoginScreen() {
                     {/* Email Input */}
                     <Text style={styles.label}>USER IDENTITY</Text>
                     <View style={styles.inputWrapper}>
-                        <Ionicons name="mail-outline" size={20} color={colors.textSecondary} style={styles.inputIcon} />
+                        <Ionicons name="mail-outline" size={20} color={theme.textSecondary} style={styles.inputIcon} />
                         <TextInput
                             style={styles.input}
                             placeholder="Enter UserId or Email"
-                            placeholderTextColor={colors.textSecondary}
+                            placeholderTextColor={theme.textSecondary}
                             value={email}
                             onChangeText={setEmail}
                             autoCapitalize="none"
@@ -76,11 +77,11 @@ export default function LoginScreen() {
                     {/* Password Input */}
                     <Text style={styles.label}>SECURITY KEY</Text>
                     <View style={styles.inputWrapper}>
-                        <Ionicons name="lock-closed-outline" size={20} color={colors.textSecondary} style={styles.inputIcon} />
+                        <Ionicons name="lock-closed-outline" size={20} color={theme.textSecondary} style={styles.inputIcon} />
                         <TextInput
                             style={styles.input}
                             placeholder="••••••••"
-                            placeholderTextColor={colors.textSecondary}
+                            placeholderTextColor={theme.textSecondary}
                             value={password}
                             onChangeText={setPassword}
                             secureTextEntry={!showPassword}
@@ -93,7 +94,7 @@ export default function LoginScreen() {
                             <Ionicons
                                 name={showPassword ? "eye-off-outline" : "eye-outline"}
                                 size={20}
-                                color={colors.textSecondary}
+                                color={theme.textSecondary}
                             />
                         </TouchableOpacity>
                     </View>
@@ -117,11 +118,11 @@ export default function LoginScreen() {
 
                 <View style={styles.footer}>
                     <View style={styles.badge}>
-                        <Ionicons name="shield-checkmark-outline" size={14} color={colors.success} />
+                        <Ionicons name="shield-checkmark-outline" size={14} color={theme.success} />
                         <Text style={styles.badgeText}>AES-256 Encryption</Text>
                     </View>
                     <View style={styles.badge}>
-                        <Ionicons name="trending-up-outline" size={14} color={colors.primary} />
+                        <Ionicons name="trending-up-outline" size={14} color={theme.primary} />
                         <Text style={styles.badgeText}>Real-time Sync</Text>
                     </View>
                 </View>
@@ -131,10 +132,10 @@ export default function LoginScreen() {
     );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (theme) => StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: colors.background,
+        backgroundColor: theme.background,
     },
     keyboardView: {
         flex: 1,
@@ -149,11 +150,11 @@ const styles = StyleSheet.create({
         width: 60,
         height: 60,
         borderRadius: 16,
-        backgroundColor: colors.primary, // Simplified gradient fallback
+        backgroundColor: theme.primary,
         justifyContent: 'center',
         alignItems: 'center',
         marginBottom: 20,
-        shadowColor: colors.primary,
+        shadowColor: theme.primary,
         shadowOffset: { width: 0, height: 10 },
         shadowOpacity: 0.3,
         shadowRadius: 10,
@@ -162,26 +163,31 @@ const styles = StyleSheet.create({
     title: {
         fontSize: 32,
         fontWeight: '800',
-        color: colors.textPrimary,
+        color: theme.headerText,
         letterSpacing: -1,
     },
     titleHighlight: {
-        color: '#818cf8',
+        color: theme.primary,
     },
     subtitle: {
         fontSize: 14,
-        color: colors.textSecondary,
+        color: theme.textSecondary,
         marginTop: 8,
     },
     formContainer: {
-        backgroundColor: colors.cardData,
+        backgroundColor: theme.cardBg,
         borderRadius: 24,
         padding: 24,
         borderWidth: 1,
-        borderColor: colors.inputBorder,
+        borderColor: theme.cardBorder,
+        shadowColor: theme.shadowColor,
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.1,
+        shadowRadius: 20,
+        elevation: 5,
     },
     label: {
-        color: colors.textSecondary,
+        color: theme.textSecondary,
         fontSize: 12,
         fontWeight: '700',
         marginTop: 16,
@@ -191,9 +197,9 @@ const styles = StyleSheet.create({
     inputWrapper: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: colors.inputBackground,
+        backgroundColor: theme.inputBackground,
         borderWidth: 1,
-        borderColor: colors.inputBorder,
+        borderColor: theme.inputBorder,
         borderRadius: 14,
         height: 50,
         paddingHorizontal: 16,
@@ -203,7 +209,7 @@ const styles = StyleSheet.create({
     },
     input: {
         flex: 1,
-        color: colors.textPrimary,
+        color: theme.textPrimary,
         fontSize: 15,
     },
     eyeIcon: {
@@ -211,12 +217,12 @@ const styles = StyleSheet.create({
     },
     button: {
         marginTop: 32,
-        backgroundColor: colors.primary,
+        backgroundColor: theme.primary,
         height: 52,
         borderRadius: 14,
         justifyContent: 'center',
         alignItems: 'center',
-        shadowColor: colors.primary,
+        shadowColor: theme.primary,
         shadowOffset: { width: 0, height: 8 },
         shadowOpacity: 0.4,
         shadowRadius: 10,
@@ -228,7 +234,7 @@ const styles = StyleSheet.create({
         gap: 8,
     },
     buttonText: {
-        color: colors.textPrimary,
+        color: '#ffffff',
         fontSize: 16,
         fontWeight: '700',
         marginRight: 8,
@@ -246,7 +252,7 @@ const styles = StyleSheet.create({
         gap: 6,
     },
     badgeText: {
-        color: colors.textSecondary,
+        color: theme.textSecondary,
         fontSize: 12,
         fontWeight: '500',
     },

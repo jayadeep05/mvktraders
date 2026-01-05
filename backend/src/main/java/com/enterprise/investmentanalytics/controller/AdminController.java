@@ -4,6 +4,7 @@ import com.enterprise.investmentanalytics.dto.request.RegisterRequest;
 import com.enterprise.investmentanalytics.dto.request.CreateClientRequest;
 import com.enterprise.investmentanalytics.dto.request.UpdateUserRequest;
 import com.enterprise.investmentanalytics.dto.response.AuthenticationResponse;
+import com.enterprise.investmentanalytics.dto.response.DepositRequestDTO;
 import com.enterprise.investmentanalytics.dto.response.WithdrawalRequestDTO;
 import com.enterprise.investmentanalytics.model.entity.User;
 import com.enterprise.investmentanalytics.repository.UserRepository;
@@ -35,6 +36,11 @@ public class AdminController {
     private final com.enterprise.investmentanalytics.service.UserIdGeneratorService userIdGeneratorService;
     private final com.enterprise.investmentanalytics.service.TransactionService transactionService;
     private final com.enterprise.investmentanalytics.repository.MonthlyProfitHistoryRepository monthlyProfitHistoryRepository;
+    private final com.enterprise.investmentanalytics.service.DepositService depositService;
+    private final com.enterprise.investmentanalytics.service.PayoutRequestService payoutRequestService;
+    private final com.enterprise.investmentanalytics.repository.PortfolioRepository portfolioRepository;
+    private final com.enterprise.investmentanalytics.repository.TransactionRepository transactionRepository;
+    private final com.enterprise.investmentanalytics.service.DeleteRequestService deleteRequestService;
 
     @PostMapping("/users")
     public ResponseEntity<AuthenticationResponse> createUser(@RequestBody RegisterRequest request) {
@@ -42,10 +48,20 @@ public class AdminController {
     }
 
     @GetMapping("/pending-users")
-    public ResponseEntity<List<User>> getPendingUsers() {
+    public ResponseEntity<List<com.enterprise.investmentanalytics.dto.response.PendingUserDTO>> getPendingUsers() {
         return ResponseEntity.ok(userRepository.findAll().stream()
                 .filter(u -> u
                         .getStatus() == com.enterprise.investmentanalytics.model.enums.UserStatus.PENDING_APPROVAL)
+                .map(u -> com.enterprise.investmentanalytics.dto.response.PendingUserDTO.builder()
+                        .id(u.getId())
+                        .userId(u.getUserId())
+                        .name(u.getName())
+                        .email(u.getEmail())
+                        .mobile(u.getMobile())
+                        .role(u.getRole().toString())
+                        .mediatorName(u.getMediator() != null ? u.getMediator().getName() : "Direct")
+                        .createdAt(u.getCreatedAt())
+                        .build())
                 .toList());
     }
 
@@ -80,8 +96,10 @@ public class AdminController {
     }
 
     @GetMapping("/users")
-    public ResponseEntity<List<User>> getAllUsers() {
-        return ResponseEntity.ok(userRepository.findAll());
+    public ResponseEntity<List<com.enterprise.investmentanalytics.dto.response.UserDTO>> getAllUsers() {
+        return ResponseEntity.ok(userRepository.findAllWithMediator().stream()
+                .map(this::mapToUserDTO)
+                .toList());
     }
 
     @GetMapping("/clients")
@@ -121,7 +139,7 @@ public class AdminController {
         // totalInvested, totalValue, profitPercentage.
 
         response.put("id", portfolio.getId());
-        response.put("user", portfolio.getUser());
+        response.put("user", mapToUserDTO(portfolio.getUser()));
         response.put("totalValue", portfolio.getTotalValue());
         response.put("totalInvested", portfolio.getTotalInvested());
         response.put("availableProfit", portfolio.getAvailableProfit());
@@ -321,6 +339,38 @@ public class AdminController {
         }
     }
 
+    // Deposit Request Management
+    @PostMapping("/deposit-request/{userId}")
+    public ResponseEntity<Map<String, Object>> createDepositRequestForUser(
+            @PathVariable String userId,
+            @RequestBody Map<String, Object> request) {
+        try {
+            User user = userRepository.findByUserId(userId)
+                    .orElseThrow(() -> new RuntimeException("User not found with ID: " + userId));
+
+            java.math.BigDecimal amount = new java.math.BigDecimal(request.get("amount").toString());
+            String note = request.get("note") != null ? request.get("note").toString() : "Admin initiated deposit";
+
+            DepositRequestDTO depositRequest = depositService.createDepositRequest(
+                    user.getId(),
+                    amount,
+                    null, // No screenshot for admin-initiated deposits
+                    note);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("message", "Deposit request created successfully");
+            response.put("request", depositRequest);
+
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("message", e.getMessage());
+            return ResponseEntity.badRequest().body(errorResponse);
+        }
+    }
+
     @GetMapping("/withdrawal-requests")
     public ResponseEntity<List<WithdrawalRequestDTO>> getAllWithdrawalRequests() {
         return ResponseEntity.ok(withdrawalService.getAllWithdrawalRequests());
@@ -332,8 +382,18 @@ public class AdminController {
             @RequestBody Map<String, String> body,
             @AuthenticationPrincipal User admin) {
         try {
+            if (admin == null) {
+                throw new RuntimeException("Admin principal is missing");
+            }
+            String adminId = admin.getUserId();
+            if (adminId == null) {
+                adminId = admin.getEmail();
+            }
+
             String paymentMode = body.getOrDefault("paymentMode", "Other");
-            WithdrawalRequestDTO request = withdrawalService.approveWithdrawalRequest(id, admin.getUserId(),
+            System.out.println("Approving withdrawal " + id + " by " + adminId + " mode " + paymentMode);
+
+            WithdrawalRequestDTO request = withdrawalService.approveWithdrawalRequest(id, adminId,
                     paymentMode);
 
             Map<String, Object> response = new HashMap<>();
@@ -343,9 +403,11 @@ public class AdminController {
 
             return ResponseEntity.ok(response);
         } catch (Exception e) {
+            e.printStackTrace();
             Map<String, Object> errorResponse = new HashMap<>();
             errorResponse.put("success", false);
-            errorResponse.put("message", e.getMessage());
+            errorResponse.put("message",
+                    "Approval Failed: " + (e.getMessage() != null ? e.getMessage() : e.toString()));
             return ResponseEntity.badRequest().body(errorResponse);
         }
     }
@@ -408,8 +470,160 @@ public class AdminController {
         }
     }
 
+    @PostMapping("/client/{clientId}/transaction")
+    public ResponseEntity<Map<String, Object>> createManualTransaction(
+            @PathVariable UUID clientId,
+            @RequestBody com.enterprise.investmentanalytics.dto.request.AdminTransactionRequest request) {
+        try {
+            com.enterprise.investmentanalytics.dto.response.TransactionResponse transaction = transactionService
+                    .createManualTransaction(clientId, request.getAmount(), request.getType(), request.getNote());
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("message", "Transaction processed successfully");
+            response.put("transaction", transaction);
+
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("message", e.getMessage());
+            return ResponseEntity.badRequest().body(errorResponse);
+        }
+    }
+
     @PostMapping("/impersonate/{userId}")
     public ResponseEntity<AuthenticationResponse> impersonateUser(@PathVariable java.util.UUID userId) {
         return ResponseEntity.ok(authenticationService.impersonate(userId));
+    }
+
+    // Deposit Request Management
+    @GetMapping("/deposit-requests")
+    public ResponseEntity<List<DepositRequestDTO>> getAllDepositRequests() {
+        return ResponseEntity.ok(depositService.getAllDepositRequests());
+    }
+
+    @PostMapping("/deposit-requests/{id}/approve")
+    public ResponseEntity<Map<String, Object>> approveDepositRequest(
+            @PathVariable UUID id,
+            @RequestBody Map<String, String> body) {
+        try {
+            String note = body.getOrDefault("note", "");
+            DepositRequestDTO request = depositService.approveDepositRequest(id, note);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("message", "Deposit request approved successfully");
+            response.put("request", request);
+
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("message", e.getMessage());
+            return ResponseEntity.badRequest().body(errorResponse);
+        }
+    }
+
+    @PostMapping("/deposit-requests/{id}/reject")
+    public ResponseEntity<Map<String, Object>> rejectDepositRequest(
+            @PathVariable UUID id,
+            @RequestBody Map<String, String> body) {
+        try {
+            String reason = body.getOrDefault("reason", "No reason provided");
+            DepositRequestDTO request = depositService.rejectDepositRequest(id, reason);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("message", "Deposit request rejected");
+            response.put("request", request);
+
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("message", e.getMessage());
+            return ResponseEntity.badRequest().body(errorResponse);
+        }
+    }
+
+    @PostMapping("/users/{userId}/delete")
+    public ResponseEntity<?> deleteUser(
+            @PathVariable UUID userId,
+            @RequestBody java.util.Map<String, String> request,
+            @AuthenticationPrincipal User admin) {
+        String password = request.get("password");
+        User target = userRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+
+        if (target.getRole() == com.enterprise.investmentanalytics.model.enums.Role.MEDIATOR) {
+            deleteRequestService.deleteMediator(userId, admin, password);
+        } else {
+            deleteRequestService.deleteClient(userId, admin, password);
+        }
+        return ResponseEntity.ok(java.util.Map.of("message", "User deleted successfully"));
+    }
+
+    @GetMapping("/delete-requests")
+    public ResponseEntity<List<com.enterprise.investmentanalytics.dto.response.DeleteRequestDTO>> getPendingDeleteRequests() {
+        return ResponseEntity.ok(deleteRequestService.getAllPendingRequests());
+    }
+
+    @PostMapping("/delete-requests/{requestId}/approve")
+    public ResponseEntity<?> approveDeleteRequest(
+            @PathVariable UUID requestId,
+            @RequestBody java.util.Map<String, String> request,
+            @AuthenticationPrincipal User admin) {
+        String password = request.get("password");
+        deleteRequestService.approveDeleteRequest(requestId, admin, password);
+        return ResponseEntity.ok(java.util.Map.of("message", "Request approved and user deleted"));
+    }
+
+    @PostMapping("/delete-requests/{requestId}/reject")
+    public ResponseEntity<?> rejectDeleteRequest(
+            @PathVariable UUID requestId,
+            @AuthenticationPrincipal User admin) {
+        deleteRequestService.rejectDeleteRequest(requestId, admin);
+        return ResponseEntity.ok(java.util.Map.of("message", "Request rejected"));
+    }
+
+    // --- Payout Request Management ---
+
+    @GetMapping("/payout-requests")
+    public ResponseEntity<List<com.enterprise.investmentanalytics.dto.response.PayoutRequestDTO>> getAllPayoutRequests() {
+        return ResponseEntity.ok(payoutRequestService.getAllRequests());
+    }
+
+    @PostMapping("/payout-requests/{id}/approve")
+    public ResponseEntity<com.enterprise.investmentanalytics.dto.response.PayoutRequestDTO> approvePayoutRequest(
+            @PathVariable UUID id,
+            @AuthenticationPrincipal User admin) {
+        return ResponseEntity.ok(payoutRequestService.approveRequest(id, admin.getEmail()));
+    }
+
+    @PostMapping("/payout-requests/{id}/reject")
+    public ResponseEntity<com.enterprise.investmentanalytics.dto.response.PayoutRequestDTO> rejectPayoutRequest(
+            @PathVariable UUID id,
+            @RequestBody Map<String, String> body,
+            @AuthenticationPrincipal User admin) {
+        String reason = body.getOrDefault("reason", "Rejected by admin");
+        return ResponseEntity.ok(payoutRequestService.rejectRequest(id, admin.getEmail(), reason));
+    }
+
+    private com.enterprise.investmentanalytics.dto.response.UserDTO mapToUserDTO(User user) {
+        return com.enterprise.investmentanalytics.dto.response.UserDTO.builder()
+                .id(user.getId())
+                .sequentialId(user.getSequentialId())
+                .userId(user.getUserId())
+                .name(user.getName())
+                .email(user.getEmail())
+                .mobile(user.getMobile())
+                .role(user.getRole())
+                .status(user.getStatus())
+                .createdAt(user.getCreatedAt())
+                .isDeleted(user.isDeleted())
+                .mediatorName(user.getMediator() != null ? user.getMediator().getName() : null)
+                .mediatorId(user.getMediator() != null ? user.getMediator().getId() : null)
+                .build();
     }
 }

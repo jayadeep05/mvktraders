@@ -127,6 +127,22 @@ export const adminService = {
     getClientTransactions: async (id) => {
         const response = await api.get(`/admin/clients/${id}/transactions`);
         return response.data;
+    },
+    deleteUser: async (userId, password) => {
+        const response = await api.post(`/admin/users/${userId}/delete`, { password });
+        return response.data;
+    },
+    getDeleteRequests: async () => {
+        const response = await api.get('/admin/delete-requests');
+        return response.data;
+    },
+    approveDeleteRequest: async (requestId, password) => {
+        const response = await api.post(`/admin/delete-requests/${requestId}/approve`, { password });
+        return response.data;
+    },
+    rejectDeleteRequest: async (requestId) => {
+        const response = await api.post(`/admin/delete-requests/${requestId}/reject`);
+        return response.data;
     }
 };
 
@@ -153,6 +169,22 @@ export const mediatorService = {
     },
     createWithdrawalRequest: async (userId, amount, reason) => {
         const response = await api.post(`/mediator/withdrawal-request/${userId}`, { amount, reason });
+        return response.data;
+    },
+    createPayoutRequest: async (userId, amount, note) => {
+        const response = await api.post(`/mediator/payout-request/${userId}`, { amount, note });
+        return response.data;
+    },
+    requestClientDeletion: async (userId, reason) => {
+        const response = await api.post(`/mediator/clients/${userId}/request-delete`, { reason });
+        return response.data;
+    },
+    getDeleteRequests: async () => {
+        const response = await api.get('/mediator/delete-requests');
+        return response.data;
+    },
+    impersonateClient: async (clientId) => {
+        const response = await api.post(`/mediator/impersonate/${clientId}`);
         return response.data;
     }
 };

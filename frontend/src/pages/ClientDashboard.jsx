@@ -1436,7 +1436,7 @@ const ClientDashboard = () => {
             </div >
 
             {/* --- Recent History --- */}
-            <div id="history-section" style={{ ...glassPanelStyle, padding: 0, overflow: 'hidden' }}>
+            <div id="history-section" style={{ ...glassPanelStyle, padding: 0 }}>
                 <div style={{
                     padding: '24px',
                     borderBottom: '1px solid rgba(148, 163, 184, 0.1)',

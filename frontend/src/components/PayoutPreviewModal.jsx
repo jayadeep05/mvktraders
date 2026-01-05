@@ -5,7 +5,7 @@ import { X, Copy, Check, Maximize2, Image as ImageIcon, Clock } from 'lucide-rea
 const getImageUrl = (path) => {
     if (!path) return null;
     if (path.startsWith('http')) return path;
-    const API_BASE = 'http://localhost:8080/api';
+    const API_BASE = '/api';
     const cleanPath = path.startsWith('/') ? path.substring(1) : path;
     return `${API_BASE}/uploads/${cleanPath}`;
 };
@@ -57,7 +57,7 @@ const PayoutPreviewModal = ({ show, onClose, payout }) => {
 
     if (!show || !payout) return null;
 
-    const messageContent = payout.message || payout.messageContent || payout.remarks || "No message content available.";
+    const messageContent = payout.message || payout.messageContent || payout.remarks || payout.description || "No message content available.";
 
     // Dark Theme Colors
     const colors = {

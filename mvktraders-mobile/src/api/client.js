@@ -2,7 +2,7 @@ import axios from 'axios';
 import { getAccessToken, getRefreshToken, saveAuthTokens, clearAuthTokens } from '../utils/secureStore';
 import { Platform } from 'react-native';
 
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://13.48.212.110:8080/api';
+const BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.0.191:8080/api';
 
 const apiClient = axios.create({
     baseURL: BASE_URL,
@@ -28,34 +28,12 @@ apiClient.interceptors.response.use(
     (response) => response,
     async (error) => {
         const originalRequest = error.config;
-
-        // Handle 401 Unauthorized
         if (error.response?.status === 401 && !originalRequest._retry) {
             originalRequest._retry = true;
-
             try {
-                // NOTE: The current backend implementation (AuthenticationController) does NOT 
-                // seem to expose a specific /refresh-token endpoint yet, although it issues refresh tokens.
-                // If an endpoint strictly for refreshing exists (or is added in future), uncomment below:
-
-                /*
-                const refreshToken = await getRefreshToken();
-                if (!refreshToken) throw new Error('No refresh token');
-                
-                const response = await axios.post(`${BASE_URL}/auth/refresh-token`, { refreshToken });
-                const { access_token, refresh_token } = response.data;
-                
-                await saveAuthTokens(access_token, refresh_token);
-                
-                originalRequest.headers.Authorization = `Bearer ${access_token}`;
-                return apiClient(originalRequest);
-                */
-
-                // For now, since we cannot modify backend and no endpoint exists,
-                // we must treat 401 as a hard logout signal.
                 await clearAuthTokens();
+                // If we had a refresh endpoint, we would call it here
                 return Promise.reject(error);
-
             } catch (refreshError) {
                 await clearAuthTokens();
                 return Promise.reject(refreshError);
@@ -64,5 +42,84 @@ apiClient.interceptors.response.use(
         return Promise.reject(error);
     }
 );
+
+export const portfolioService = {
+    getMyPortfolio: async () => {
+        const response = await apiClient.get('/portfolio/my');
+        return response.data;
+    }
+};
+
+export const profitService = {
+    getMyHistory: async () => {
+        const response = await apiClient.get('/client/profit/history');
+        return response.data;
+    }
+};
+
+export const depositService = {
+    getMyRequests: async () => {
+        const response = await apiClient.get('/client/deposit-requests');
+        return response.data;
+    },
+    createWithdrawalRequest: async (amount) => {
+        const response = await apiClient.post('/client/withdrawal-request', { amount });
+        return response.data;
+    },
+    getMyWithdrawalRequests: async () => {
+        const response = await apiClient.get('/client/withdrawal-requests');
+        return response.data;
+    },
+
+    // Deposit Requests
+    createDepositRequest: async (formData) => {
+        // formData must contain: amount, screenshot (file), note (optional)
+        const response = await apiClient.post('/client/deposit-request', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+        });
+        return response.data;
+    },
+    getMyDepositRequests: async () => {
+        const response = await apiClient.get('/client/deposit-requests');
+        return response.data;
+    },
+    createRequest: async (amount) => {
+        const response = await apiClient.post('/client/withdrawal-request', { amount });
+        return response.data;
+    }
+};
+
+export const withdrawalService = {
+    getMyRequests: async () => {
+        const response = await apiClient.get('/client/withdrawal-requests');
+        return response.data;
+    },
+    createRequest: async (amount) => {
+        const response = await apiClient.post('/client/withdrawal-request', { amount });
+        return response.data;
+    }
+};
+
+export const clientService = {
+    getTransactions: async () => {
+        const response = await apiClient.get('/client/transactions');
+        return response.data;
+    },
+    updatePassword: async (currentPassword, newPassword) => {
+        const response = await apiClient.post('/client/change-password', { currentPassword, newPassword });
+        return response.data;
+    },
+    // Deposit Requests
+    createDepositRequest: async (formData) => {
+        const response = await apiClient.post('/client/deposit-request', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+        });
+        return response.data;
+    },
+    getMyDepositRequests: async () => {
+        const response = await apiClient.get('/client/deposit-requests');
+        return response.data;
+    },
+};
 
 export default apiClient;

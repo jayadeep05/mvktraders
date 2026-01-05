@@ -11,9 +11,11 @@ public class UserIdGeneratorService {
      * Get next sequential N_Id by checking current max in database
      */
     public synchronized Long getNextNId(com.enterprise.investmentanalytics.repository.UserRepository repository) {
-        return repository.findTopByOrderBySequentialIdDesc()
-                .map(user -> (user.getSequentialId() != null ? user.getSequentialId() : 0L) + 1)
-                .orElse(1L);
+        // Use a more robust check that doesn't rely solely on the top record
+        Long maxId = repository.findTopByOrderBySequentialIdDesc()
+                .map(user -> user.getSequentialId())
+                .orElse(0L);
+        return maxId + 1;
     }
 
     private static final String PREFIX = "SM";

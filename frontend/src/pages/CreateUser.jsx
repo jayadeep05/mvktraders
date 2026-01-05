@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Copy, Check, X, Pencil, Key } from 'lucide-react';
+import { Copy, Check, X, Pencil, Key, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { adminService, mediatorService } from '../services/api';
 import UserIdBadge from '../components/UserIdBadge';
@@ -60,18 +60,73 @@ const CreateUser = () => {
         status: 'ACTIVE' // Default status
     });
 
+    // Delete Modals State
+    const [showDeleteModal, setShowDeleteModal] = useState(false);
+    const [showRequestDeleteModal, setShowRequestDeleteModal] = useState(false);
+    const [userToDelete, setUserToDelete] = useState(null);
+    const [deletePassword, setDeletePassword] = useState('');
+    const [deleteReason, setDeleteReason] = useState('');
+    const [deleteLoading, setDeleteLoading] = useState(false);
+
+    const handleDeleteClick = (user) => {
+        setUserToDelete(user);
+        const isMediator = userRole === 'ROLE_MEDIATOR' || userRole === 'MEDIATOR';
+        if (isMediator) {
+            setShowRequestDeleteModal(true);
+        } else {
+            setShowDeleteModal(true);
+        }
+    };
+
+    const handleConfirmDelete = async () => {
+        if (!deletePassword) return;
+        setDeleteLoading(true);
+        try {
+            await adminService.deleteUser(userToDelete.id, deletePassword);
+            setShowDeleteModal(false);
+            setDeletePassword('');
+            setUserToDelete(null);
+            fetchUsers(); // Refresh list
+            // Ideally show success toast
+        } catch (err) {
+            setError('Delete failed: ' + (err.response?.data?.message || err.message));
+        } finally {
+            setDeleteLoading(false);
+        }
+    };
+
+    const handleConfirmRequestDelete = async () => {
+        setDeleteLoading(true);
+        try {
+            await mediatorService.requestClientDeletion(userToDelete.id, deleteReason);
+            setShowRequestDeleteModal(false);
+            setDeleteReason('');
+            setUserToDelete(null);
+            // Show success message
+            setSuccessModal({ show: true, userId: userToDelete.userId, message: 'Delete request submitted successfully' });
+        } catch (err) {
+            setError('Request failed: ' + (err.response?.data?.message || err.message));
+        } finally {
+            setDeleteLoading(false);
+        }
+    };
+
     const [errors, setErrors] = useState({});
 
     useEffect(() => {
-        fetchUsers();
-    }, [activeTab]);
+        if (userRole) {
+            fetchUsers();
+        }
+    }, [activeTab, userRole]);
 
     const fetchUsers = async () => {
         try {
             setLoading(true);
-            if (activeTab === 'CLIENTS') {
-                // Use getAllClientsSummary to get complete data including investment and userId
-                const data = await adminService.getAllClientsSummary();
+            const isMediator = userRole === 'ROLE_MEDIATOR' || userRole === 'MEDIATOR';
+
+            if (isMediator) {
+                // Mediator View: Only own clients
+                const data = await mediatorService.getPortfolios();
                 const mappedUsers = data.map(u => ({
                     id: u.clientId,
                     userId: u.userId,
@@ -84,7 +139,25 @@ const CreateUser = () => {
                     type: 'CLIENT'
                 }));
                 setUsers(mappedUsers);
+            } else if (activeTab === 'CLIENTS') {
+                // Admin View: All Clients
+                const data = await adminService.getAllClientsSummary();
+                const mappedUsers = data.map(u => ({
+                    id: u.clientId,
+                    userId: u.userId,
+                    name: u.clientName,
+                    email: u.email,
+                    mobile: u.mobile,
+                    totalInvested: u.totalInvested,
+                    percentageOffered: u.profitPercentage,
+                    status: u.status,
+                    type: 'CLIENT',
+                    mediatorName: u.mediatorName,
+                    mediatorUserId: u.mediatorUserId
+                }));
+                setUsers(mappedUsers);
             } else {
+                // Admin View: All Users (Mediators/Admins)
                 const data = await adminService.getAllUsers();
                 const mediators = data.filter(u => u.role === 'MEDIATOR');
                 const mappedUsers = mediators.map(u => ({
@@ -157,15 +230,28 @@ const CreateUser = () => {
     };
 
     const handleImpersonate = async (user) => {
-        if (!window.confirm(`Login as ${user.name}? You will be logged out of Admin.`)) return;
+        const isMediator = userRole === 'ROLE_MEDIATOR' || userRole === 'MEDIATOR';
+        if (!window.confirm(`Login as ${user.name}? You will be logged out of ${isMediator ? 'Mediator' : 'Admin'}.`)) return;
+
         try {
-            const response = await adminService.impersonateUser(user.id);
+            let response;
+            if (isMediator) {
+                response = await mediatorService.impersonateClient(user.id);
+            } else {
+                response = await adminService.impersonateUser(user.id);
+            }
+
             localStorage.setItem('token', response.access_token);
             if (response.refresh_token) localStorage.setItem('refresh_token', response.refresh_token);
+            // Both Admin and Client (impersonated) go to /dashboard (which handles Client) or stays in Admin context... 
+            // Wait, standard Admin dashboard is likely /dashboard too but routed differently?
+            // In App.jsx: /dashboard is Client Dashboard. Admin dashboard routes are in ProtectedLayout (e.g. /admin/clients).
+            // When Admin impersonates User, they BECOME user, so they should go to /dashboard.
+            // When Mediator impersonates Client, they BECOME client, so they should go to /dashboard.
             window.location.href = '/dashboard';
         } catch (error) {
             console.error(error);
-            alert('Failed to impersonate user');
+            alert('Failed to impersonate user: ' + (error.response?.data?.message || error.message));
         }
     };
 
@@ -221,6 +307,8 @@ const CreateUser = () => {
                     city: formData.city,
                     investmentAmount: parseFloat(formData.investmentAmount),
                     percentageOffered: parseFloat(formData.percentageOffered),
+                    email: formData.email,
+                    password: formData.password,
                 });
                 if (response.success) alert("Client creation request submitted for approval.");
             } else {
@@ -532,7 +620,7 @@ const CreateUser = () => {
                                 borderBottom: '1px solid rgba(148, 163, 184, 0.1)'
                             }}>
                                 <th style={{
-                                    width: activeTab === 'CLIENTS' ? '16.66%' : '15%',
+                                    width: activeTab === 'CLIENTS' ? '12%' : '15%',
                                     padding: '16px 20px',
                                     textAlign: 'center',
                                     fontSize: '12px',
@@ -542,7 +630,7 @@ const CreateUser = () => {
                                     letterSpacing: '1px'
                                 }}>User ID</th>
                                 <th style={{
-                                    width: activeTab === 'CLIENTS' ? '16.66%' : '25%',
+                                    width: activeTab === 'CLIENTS' ? '14%' : '25%',
                                     padding: '16px 20px',
                                     textAlign: 'center',
                                     fontSize: '12px',
@@ -552,7 +640,7 @@ const CreateUser = () => {
                                     letterSpacing: '1px'
                                 }}>{activeTab === 'CLIENTS' ? 'Client Name' : 'Mediator Name'}</th>
                                 <th style={{
-                                    width: activeTab === 'CLIENTS' ? '16.66%' : '25%',
+                                    width: activeTab === 'CLIENTS' ? '16%' : '25%',
                                     padding: '16px 20px',
                                     textAlign: 'center',
                                     fontSize: '12px',
@@ -563,18 +651,20 @@ const CreateUser = () => {
                                 }}>Contact</th>
                                 {activeTab === 'CLIENTS' && (
                                     <>
+                                        {!(userRole === 'ROLE_MEDIATOR' || userRole === 'MEDIATOR') && (
+                                            <th style={{
+                                                width: '14%',
+                                                padding: '16px 20px',
+                                                textAlign: 'center',
+                                                fontSize: '12px',
+                                                fontWeight: '600',
+                                                color: '#94a3b8',
+                                                textTransform: 'uppercase',
+                                                letterSpacing: '1px'
+                                            }}>Mediator</th>
+                                        )}
                                         <th style={{
-                                            width: '16.66%',
-                                            padding: '16px 20px',
-                                            textAlign: 'center',
-                                            fontSize: '12px',
-                                            fontWeight: '600',
-                                            color: '#94a3b8',
-                                            textTransform: 'uppercase',
-                                            letterSpacing: '1px'
-                                        }}>Credentials</th>
-                                        <th style={{
-                                            width: '16.66%',
+                                            width: '16%',
                                             padding: '16px 20px',
                                             textAlign: 'center',
                                             fontSize: '12px',
@@ -598,7 +688,7 @@ const CreateUser = () => {
                                     }}>Created Date</th>
                                 )}
                                 <th style={{
-                                    width: activeTab === 'CLIENTS' ? '16.66%' : '15%',
+                                    width: activeTab === 'CLIENTS' ? '14%' : '15%',
                                     padding: '16px 20px',
                                     textAlign: 'center',
                                     fontSize: '12px',
@@ -608,7 +698,7 @@ const CreateUser = () => {
                                     letterSpacing: '1px'
                                 }}>Status</th>
                                 <th style={{
-                                    width: '10%',
+                                    width: '14%',
                                     padding: '16px 20px',
                                     textAlign: 'center',
                                     fontSize: '12px',
@@ -667,44 +757,22 @@ const CreateUser = () => {
                                                     color: '#cbd5e1',
                                                     marginBottom: '4px'
                                                 }}>{user.mobile || 'N/A'}</div>
-                                                <div style={{
-                                                    fontSize: '12px',
-                                                    color: '#64748b'
-                                                }}>{user.email}</div>
                                             </div>
                                         </td>
                                         {activeTab === 'CLIENTS' && (
                                             <>
-                                                <td data-label="Credentials" style={{ padding: '20px', textAlign: 'center' }}>
-                                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                                                        <span style={{
-                                                            fontFamily: 'monospace',
-                                                            fontSize: '13px',
-                                                            color: '#94a3b8',
-                                                            background: 'rgba(15, 23, 42, 0.8)',
-                                                            padding: '6px 12px',
-                                                            borderRadius: '8px',
-                                                            border: '1px solid rgba(148, 163, 184, 0.1)'
-                                                        }}>
-                                                            {showPasswords[user.id] ? 'client@321' : '••••••••'}
-                                                        </span>
-                                                        <button
-                                                            onClick={() => togglePasswordVisibility(user.id)}
-                                                            style={{
-                                                                background: 'none',
-                                                                border: 'none',
-                                                                cursor: 'pointer',
-                                                                fontSize: '18px',
-                                                                opacity: 0.6,
-                                                                transition: 'opacity 0.2s'
-                                                            }}
-                                                            onMouseEnter={(e) => e.target.style.opacity = '1'}
-                                                            onMouseLeave={(e) => e.target.style.opacity = '0.6'}
-                                                        >
-                                                            {showPasswords[user.id] ? '🙈' : '👁️'}
-                                                        </button>
-                                                    </div>
-                                                </td>
+                                                {!(userRole === 'ROLE_MEDIATOR' || userRole === 'MEDIATOR') && (
+                                                    <td data-label="Mediator" style={{ padding: '20px', textAlign: 'center', color: '#cbd5e1' }}>
+                                                        {user.mediatorName && user.mediatorName !== 'Direct' ? (
+                                                            <div>
+                                                                <div style={{ fontSize: '14px', fontWeight: '500' }}>{user.mediatorName}</div>
+                                                                <div style={{ fontSize: '10px', color: '#64748b' }}>{user.mediatorUserId}</div>
+                                                            </div>
+                                                        ) : (
+                                                            <span style={{ color: '#64748b', fontStyle: 'italic', fontSize: '13px' }}>Direct</span>
+                                                        )}
+                                                    </td>
+                                                )}
                                                 <td data-label="Investment" style={{
                                                     padding: '20px',
                                                     textAlign: 'center',
@@ -753,15 +821,17 @@ const CreateUser = () => {
                                                     style={{
                                                         background: 'rgba(99, 102, 241, 0.1)',
                                                         border: 'none',
-                                                        width: '32px',
-                                                        height: '32px',
+                                                        padding: '6px 12px',
                                                         borderRadius: '8px',
                                                         color: '#818cf8',
                                                         cursor: 'pointer',
                                                         display: 'flex',
                                                         alignItems: 'center',
                                                         justifyContent: 'center',
+                                                        gap: '6px',
                                                         transition: 'all 0.2s',
+                                                        fontWeight: '600',
+                                                        fontSize: '12px'
                                                     }}
                                                     onMouseEnter={(e) => {
                                                         e.target.style.background = 'rgba(99, 102, 241, 0.2)';
@@ -772,24 +842,43 @@ const CreateUser = () => {
                                                         e.target.style.transform = 'translateY(0)';
                                                     }}
                                                 >
-                                                    <Key size={16} />
+                                                    <Key size={14} />
                                                 </button>
+                                                {!(userRole === 'ROLE_MEDIATOR' || userRole === 'MEDIATOR') && (
+                                                    <button
+                                                        onClick={() => handleEdit(user)}
+                                                        style={{
+                                                            background: 'rgba(99, 102, 241, 0.1)',
+                                                            border: 'none',
+                                                            borderRadius: '8px',
+                                                            padding: '8px',
+                                                            color: '#818cf8',
+                                                            cursor: 'pointer',
+                                                            transition: 'all 0.2s'
+                                                        }}
+                                                        onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(99, 102, 241, 0.2)'}
+                                                        onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(99, 102, 241, 0.1)'}
+                                                        title="Edit User"
+                                                    >
+                                                        <Pencil size={16} />
+                                                    </button>
+                                                )}
                                                 <button
-                                                    onClick={() => handleEdit(user)}
+                                                    onClick={() => handleDeleteClick(user)}
+                                                    title={(userRole === 'ROLE_MEDIATOR' || userRole === 'MEDIATOR') ? "Request Deletion" : "Delete User"}
                                                     style={{
-                                                        background: 'rgba(99, 102, 241, 0.1)',
+                                                        background: 'rgba(239, 68, 68, 0.1)',
                                                         border: 'none',
                                                         borderRadius: '8px',
                                                         padding: '8px',
-                                                        color: '#818cf8',
+                                                        color: '#f87171',
                                                         cursor: 'pointer',
                                                         transition: 'all 0.2s'
                                                     }}
-                                                    onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(99, 102, 241, 0.2)'}
-                                                    onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(99, 102, 241, 0.1)'}
-                                                    title="Edit User"
+                                                    onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(239, 68, 68, 0.2)'}
+                                                    onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)'}
                                                 >
-                                                    <Pencil size={16} />
+                                                    <Trash2 size={16} />
                                                 </button>
                                             </div>
                                         </td>
@@ -975,7 +1064,43 @@ const CreateUser = () => {
                                             />
                                         </div>
 
-                                        {creationMode === 'CLIENT' ? (
+                                        <div>
+                                            <label style={{
+                                                display: 'block',
+                                                fontSize: '12px',
+                                                fontWeight: '600',
+                                                color: '#cbd5e1',
+                                                marginBottom: '6px'
+                                            }}>Email Address</label>
+                                            <input
+                                                type="email"
+                                                name="email"
+                                                placeholder="client@company.com"
+                                                value={formData.email}
+                                                onChange={handleChange}
+                                                style={{
+                                                    width: '100%',
+                                                    height: '40px',
+                                                    padding: '0 12px',
+                                                    fontSize: '14px',
+                                                    color: '#f8fafc',
+                                                    background: 'rgba(15, 23, 42, 0.6)',
+                                                    border: errors.email ? '1px solid rgba(239, 68, 68, 0.5)' : '1px solid rgba(148, 163, 184, 0.2)',
+                                                    borderRadius: '8px',
+                                                    outline: 'none',
+                                                    transition: 'all 0.3s ease'
+                                                }}
+                                                onFocus={(e) => {
+                                                    e.target.style.borderColor = '#6366f1';
+                                                    e.target.style.boxShadow = '0 0 0 3px rgba(99, 102, 241, 0.1)';
+                                                }}
+                                                onBlur={(e) => {
+                                                    e.target.style.borderColor = errors.email ? 'rgba(239, 68, 68, 0.5)' : 'rgba(148, 163, 184, 0.2)';
+                                                    e.target.style.boxShadow = 'none';
+                                                }}
+                                            />
+                                        </div>
+                                        {creationMode === 'CLIENT' && (
                                             <div>
                                                 <label style={{
                                                     display: 'block',
@@ -987,7 +1112,7 @@ const CreateUser = () => {
                                                 <input
                                                     type="text"
                                                     name="city"
-                                                    placeholder="Los Angeles"
+                                                    placeholder="City Name"
                                                     value={formData.city}
                                                     onChange={handleChange}
                                                     disabled={!!editingUser}
@@ -1009,43 +1134,6 @@ const CreateUser = () => {
                                                     }}
                                                     onBlur={(e) => {
                                                         e.target.style.borderColor = errors.city ? 'rgba(239, 68, 68, 0.5)' : 'rgba(148, 163, 184, 0.2)';
-                                                        e.target.style.boxShadow = 'none';
-                                                    }}
-                                                />
-                                            </div>
-                                        ) : (
-                                            <div>
-                                                <label style={{
-                                                    display: 'block',
-                                                    fontSize: '12px',
-                                                    fontWeight: '600',
-                                                    color: '#cbd5e1',
-                                                    marginBottom: '6px'
-                                                }}>Email Address</label>
-                                                <input
-                                                    type="email"
-                                                    name="email"
-                                                    placeholder="mediator@company.com"
-                                                    value={formData.email}
-                                                    onChange={handleChange}
-                                                    style={{
-                                                        width: '100%',
-                                                        height: '40px',
-                                                        padding: '0 12px',
-                                                        fontSize: '14px',
-                                                        color: '#f8fafc',
-                                                        background: 'rgba(15, 23, 42, 0.6)',
-                                                        border: errors.email ? '1px solid rgba(239, 68, 68, 0.5)' : '1px solid rgba(148, 163, 184, 0.2)',
-                                                        borderRadius: '8px',
-                                                        outline: 'none',
-                                                        transition: 'all 0.3s ease'
-                                                    }}
-                                                    onFocus={(e) => {
-                                                        e.target.style.borderColor = '#6366f1';
-                                                        e.target.style.boxShadow = '0 0 0 3px rgba(99, 102, 241, 0.1)';
-                                                    }}
-                                                    onBlur={(e) => {
-                                                        e.target.style.borderColor = errors.email ? 'rgba(239, 68, 68, 0.5)' : 'rgba(148, 163, 184, 0.2)';
                                                         e.target.style.boxShadow = 'none';
                                                     }}
                                                 />
@@ -1440,6 +1528,59 @@ const CreateUser = () => {
                     </div>
                 </div>,
                 document.body
+            )}
+
+            {/* Delete Confirmation Modal (Admin) */}
+            {showDeleteModal && createPortal(
+                <>
+                    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.8)', backdropFilter: 'blur(4px)', zIndex: 1000 }} onClick={() => setShowDeleteModal(false)} />
+                    <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 1001, width: '90%', maxWidth: '400px', background: '#1e293b', padding: '24px', borderRadius: '16px', border: '1px solid rgba(239, 68, 68, 0.2)', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)' }}>
+                        <h3 style={{ fontSize: '18px', fontWeight: 'bold', color: '#f87171', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <Trash2 size={20} /> Convert to Inactive / Delete?
+                        </h3>
+                        {error && <div style={{ color: '#ef4444', background: 'rgba(239, 68, 68, 0.1)', padding: '12px', borderRadius: '8px', marginBottom: '16px', fontSize: '14px' }}>{error}</div>}
+                        <p style={{ color: '#94a3b8', fontSize: '14px', marginBottom: '20px', lineHeight: '1.5' }}>
+                            Are you sure you want to delete <strong>{userToDelete?.name}</strong>? This action will mark them as deleted.
+                            <br /><br />
+                            Please enter your Admin Password to confirm.
+                        </p>
+                        <input
+                            type="password"
+                            placeholder="Enter Admin Password"
+                            value={deletePassword}
+                            onChange={(e) => setDeletePassword(e.target.value)}
+                            style={{ width: '100%', padding: '12px', background: 'rgba(15, 23, 42, 0.5)', border: '1px solid rgba(148, 163, 184, 0.2)', borderRadius: '8px', color: '#f8fafc', marginBottom: '20px', outline: 'none' }}
+                        />
+                        <div style={{ display: 'flex', gap: '12px' }}>
+                            <button onClick={() => setShowDeleteModal(false)} style={{ flex: 1, padding: '12px', background: 'transparent', border: '1px solid rgba(148, 163, 184, 0.2)', borderRadius: '8px', color: '#cbd5e1', cursor: 'pointer' }}>Cancel</button>
+                            <button onClick={handleConfirmDelete} disabled={deleteLoading || !deletePassword} style={{ flex: 1, padding: '12px', background: '#ef4444', border: 'none', borderRadius: '8px', color: 'white', fontWeight: '600', cursor: 'pointer', opacity: (deleteLoading || !deletePassword) ? 0.5 : 1 }}>{deleteLoading ? 'Deleting...' : 'Confirm Delete'}</button>
+                        </div>
+                    </div>
+                </>, document.body
+            )}
+
+            {/* Request Delete Modal (Mediator) */}
+            {showRequestDeleteModal && createPortal(
+                <>
+                    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.8)', backdropFilter: 'blur(4px)', zIndex: 1000 }} onClick={() => setShowRequestDeleteModal(false)} />
+                    <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 1001, width: '90%', maxWidth: '400px', background: '#1e293b', padding: '24px', borderRadius: '16px', border: '1px solid rgba(99, 102, 241, 0.2)', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)' }}>
+                        <h3 style={{ fontSize: '18px', fontWeight: 'bold', color: '#f8fafc', marginBottom: '12px' }}>Request User Deletion</h3>
+                        {error && <div style={{ color: '#ef4444', background: 'rgba(239, 68, 68, 0.1)', padding: '12px', borderRadius: '8px', marginBottom: '16px', fontSize: '14px' }}>{error}</div>}
+                        <p style={{ color: '#94a3b8', fontSize: '14px', marginBottom: '20px' }}>
+                            Request deletion for <strong>{userToDelete?.name}</strong>. An admin will review this request.
+                        </p>
+                        <textarea
+                            placeholder="Reason for deletion (Optional)"
+                            value={deleteReason}
+                            onChange={(e) => setDeleteReason(e.target.value)}
+                            style={{ width: '100%', minHeight: '80px', padding: '12px', background: 'rgba(15, 23, 42, 0.5)', border: '1px solid rgba(148, 163, 184, 0.2)', borderRadius: '8px', color: '#f8fafc', marginBottom: '20px', outline: 'none', resize: 'vertical' }}
+                        />
+                        <div style={{ display: 'flex', gap: '12px' }}>
+                            <button onClick={() => setShowRequestDeleteModal(false)} style={{ flex: 1, padding: '12px', background: 'transparent', border: '1px solid rgba(148, 163, 184, 0.2)', borderRadius: '8px', color: '#cbd5e1', cursor: 'pointer' }}>Cancel</button>
+                            <button onClick={handleConfirmRequestDelete} disabled={deleteLoading} style={{ flex: 1, padding: '12px', background: '#6366f1', border: 'none', borderRadius: '8px', color: 'white', fontWeight: '600', cursor: 'pointer', opacity: deleteLoading ? 0.5 : 1 }}>{deleteLoading ? 'Submitting...' : 'Submit Request'}</button>
+                        </div>
+                    </div>
+                </>, document.body
             )}
         </div>
     );

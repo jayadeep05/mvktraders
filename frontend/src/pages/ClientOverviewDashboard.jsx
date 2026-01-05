@@ -503,8 +503,8 @@ const ClientOverviewDashboard = () => {
                                         <th
                                             onClick={() => handleSort('userId')}
                                             style={{
-                                                width: '12%',
-                                                padding: '16px 20px',
+                                                width: '10%',
+                                                padding: '16px 12px',
                                                 textAlign: 'center',
                                                 fontSize: '12px',
                                                 fontWeight: '600',
@@ -523,8 +523,8 @@ const ClientOverviewDashboard = () => {
                                         <th
                                             onClick={() => handleSort('clientName')}
                                             style={{
-                                                width: '13%',
-                                                padding: '16px 20px',
+                                                width: '15%',
+                                                padding: '16px 12px',
                                                 textAlign: 'center',
                                                 fontSize: '12px',
                                                 fontWeight: '600',
@@ -541,11 +541,28 @@ const ClientOverviewDashboard = () => {
                                             Client
                                         </th>
 
+                                        {!(userRole === 'ROLE_MEDIATOR' || userRole === 'MEDIATOR') && (
+                                            <th
+                                                style={{
+                                                    width: '14%',
+                                                    padding: '16px 12px',
+                                                    textAlign: 'center',
+                                                    fontSize: '12px',
+                                                    fontWeight: '600',
+                                                    color: '#94a3b8',
+                                                    textTransform: 'uppercase',
+                                                    letterSpacing: '1px',
+                                                }}
+                                            >
+                                                Mediator
+                                            </th>
+                                        )}
+
                                         <th
                                             onClick={() => handleSort('totalInvested')}
                                             style={{
-                                                width: '8%',
-                                                padding: '16px 20px',
+                                                width: '10%',
+                                                padding: '16px 12px',
                                                 textAlign: 'center',
                                                 fontSize: '12px',
                                                 fontWeight: '600',
@@ -564,8 +581,8 @@ const ClientOverviewDashboard = () => {
                                         <th
                                             onClick={() => handleSort('availableProfit')}
                                             style={{
-                                                width: '9%',
-                                                padding: '16px 20px',
+                                                width: '10%',
+                                                padding: '16px 12px',
                                                 textAlign: 'center',
                                                 fontSize: '12px',
                                                 fontWeight: '600',
@@ -584,8 +601,8 @@ const ClientOverviewDashboard = () => {
                                         <th
                                             onClick={() => handleSort('currentValue')}
                                             style={{
-                                                width: '9%',
-                                                padding: '16px 20px',
+                                                width: '10%',
+                                                padding: '16px 12px',
                                                 textAlign: 'center',
                                                 fontSize: '12px',
                                                 fontWeight: '600',
@@ -604,8 +621,8 @@ const ClientOverviewDashboard = () => {
                                         <th
                                             onClick={() => handleSort('growthPercentage')}
                                             style={{
-                                                width: '9%',
-                                                padding: '16px 20px',
+                                                width: '10%',
+                                                padding: '16px 12px',
                                                 textAlign: 'center',
                                                 fontSize: '12px',
                                                 fontWeight: '600',
@@ -621,7 +638,7 @@ const ClientOverviewDashboard = () => {
                                         >
                                             Growth
                                         </th>
-                                        <th style={{ width: '15%', padding: '16px 20px', textAlign: 'center', fontSize: '12px', fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                                        <th style={{ width: '21%', padding: '16px 20px', textAlign: 'center', fontSize: '12px', fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '1px' }}>
                                             Actions
                                         </th>
                                     </tr>
@@ -654,6 +671,19 @@ const ClientOverviewDashboard = () => {
                                                     </span>
                                                 </div>
                                             </td>
+
+                                            {!(userRole === 'ROLE_MEDIATOR' || userRole === 'MEDIATOR') && (
+                                                <td data-label="Mediator" style={{ padding: '20px', textAlign: 'center', color: '#cbd5e1' }}>
+                                                    {client.mediatorName && client.mediatorName !== 'Direct' ? (
+                                                        <div>
+                                                            <div style={{ fontSize: '14px', fontWeight: '500' }}>{client.mediatorName}</div>
+                                                            <div style={{ fontSize: '10px', color: '#64748b' }}>{client.mediatorUserId}</div>
+                                                        </div>
+                                                    ) : (
+                                                        <span style={{ color: '#64748b', fontStyle: 'italic', fontSize: '13px' }}>Direct</span>
+                                                    )}
+                                                </td>
+                                            )}
 
                                             <td data-label="Invested" style={{
                                                 padding: '20px',
@@ -713,8 +743,8 @@ const ClientOverviewDashboard = () => {
                                             </td>
 
                                             {/* Unified Actions Column */}
-                                            <td data-label="Actions" style={{ padding: '20px' }}>
-                                                <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                                            <td data-label="Actions" style={{ padding: '16px' }}>
+                                                <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', alignItems: 'center' }}>
                                                     {/* Add Funds */}
                                                     <button
                                                         onClick={() => {
@@ -722,14 +752,16 @@ const ClientOverviewDashboard = () => {
                                                             setShowDepositModal(true);
                                                         }}
                                                         style={{
-                                                            padding: '10px',
+                                                            padding: '8px',
                                                             background: 'rgba(16, 185, 129, 0.15)',
                                                             border: '1px solid rgba(16, 185, 129, 0.2)',
-                                                            borderRadius: '10px',
+                                                            borderRadius: '8px',
                                                             color: '#34d399',
                                                             cursor: 'pointer',
                                                             display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                            transition: 'all 0.2s'
+                                                            transition: 'all 0.2s',
+                                                            minWidth: '32px',
+                                                            minHeight: '32px'
                                                         }}
                                                         title="Add Funds"
                                                         onMouseEnter={(e) => {
@@ -741,7 +773,7 @@ const ClientOverviewDashboard = () => {
                                                             e.currentTarget.style.transform = 'translateY(0)';
                                                         }}
                                                     >
-                                                        <CirclePlus size={18} />
+                                                        <CirclePlus size={16} />
                                                     </button>
 
                                                     {/* Withdraw */}
@@ -751,14 +783,16 @@ const ClientOverviewDashboard = () => {
                                                             setShowWithdrawalModal(true);
                                                         }}
                                                         style={{
-                                                            padding: '10px',
+                                                            padding: '8px',
                                                             background: 'rgba(239, 68, 68, 0.15)',
                                                             border: '1px solid rgba(239, 68, 68, 0.2)',
-                                                            borderRadius: '10px',
+                                                            borderRadius: '8px',
                                                             color: '#f87171',
                                                             cursor: 'pointer',
                                                             display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                            transition: 'all 0.2s'
+                                                            transition: 'all 0.2s',
+                                                            minWidth: '32px',
+                                                            minHeight: '32px'
                                                         }}
                                                         title="Withdraw Funds"
                                                         onMouseEnter={(e) => {
@@ -770,39 +804,39 @@ const ClientOverviewDashboard = () => {
                                                             e.currentTarget.style.transform = 'translateY(0)';
                                                         }}
                                                     >
-                                                        <CircleMinus size={18} />
+                                                        <CircleMinus size={16} />
                                                     </button>
 
-                                                    {/* Payout (Admin Only) */}
-                                                    {!(userRole === 'ROLE_MEDIATOR' || userRole === 'MEDIATOR') && (
-                                                        <button
-                                                            onClick={() => {
-                                                                setSelectedClient(client);
-                                                                setShowPayoutModal(true);
-                                                            }}
-                                                            style={{
-                                                                padding: '10px',
-                                                                background: 'rgba(99, 102, 241, 0.15)',
-                                                                border: '1px solid rgba(99, 102, 241, 0.2)',
-                                                                borderRadius: '10px',
-                                                                color: '#818cf8',
-                                                                cursor: 'pointer',
-                                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                                transition: 'all 0.2s'
-                                                            }}
-                                                            title="Process Payout"
-                                                            onMouseEnter={(e) => {
-                                                                e.currentTarget.style.background = 'rgba(99, 102, 241, 0.25)';
-                                                                e.currentTarget.style.transform = 'translateY(-2px)';
-                                                            }}
-                                                            onMouseLeave={(e) => {
-                                                                e.currentTarget.style.background = 'rgba(99, 102, 241, 0.15)';
-                                                                e.currentTarget.style.transform = 'translateY(0)';
-                                                            }}
-                                                        >
-                                                            <Banknote size={18} />
-                                                        </button>
-                                                    )}
+                                                    {/* Payout (Admin & Mediator) */}
+                                                    <button
+                                                        onClick={() => {
+                                                            setSelectedClient(client);
+                                                            setShowPayoutModal(true);
+                                                        }}
+                                                        style={{
+                                                            padding: '8px',
+                                                            background: 'rgba(99, 102, 241, 0.15)',
+                                                            border: '1px solid rgba(99, 102, 241, 0.2)',
+                                                            borderRadius: '8px',
+                                                            color: '#818cf8',
+                                                            cursor: 'pointer',
+                                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                            transition: 'all 0.2s',
+                                                            minWidth: '32px',
+                                                            minHeight: '32px'
+                                                        }}
+                                                        title="Request Payout"
+                                                        onMouseEnter={(e) => {
+                                                            e.currentTarget.style.background = 'rgba(99, 102, 241, 0.25)';
+                                                            e.currentTarget.style.transform = 'translateY(-2px)';
+                                                        }}
+                                                        onMouseLeave={(e) => {
+                                                            e.currentTarget.style.background = 'rgba(99, 102, 241, 0.15)';
+                                                            e.currentTarget.style.transform = 'translateY(0)';
+                                                        }}
+                                                    >
+                                                        <Banknote size={16} />
+                                                    </button>
 
                                                     {/* History */}
                                                     <button
@@ -811,14 +845,16 @@ const ClientOverviewDashboard = () => {
                                                             setShowHistoryModal(true);
                                                         }}
                                                         style={{
-                                                            padding: '10px',
+                                                            padding: '8px',
                                                             background: 'rgba(148, 163, 184, 0.15)',
                                                             border: '1px solid rgba(148, 163, 184, 0.2)',
-                                                            borderRadius: '10px',
+                                                            borderRadius: '8px',
                                                             color: '#cbd5e1',
                                                             cursor: 'pointer',
                                                             display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                            transition: 'all 0.2s'
+                                                            transition: 'all 0.2s',
+                                                            minWidth: '32px',
+                                                            minHeight: '32px'
                                                         }}
                                                         title="View History"
                                                         onMouseEnter={(e) => {
@@ -830,7 +866,7 @@ const ClientOverviewDashboard = () => {
                                                             e.currentTarget.style.transform = 'translateY(0)';
                                                         }}
                                                     >
-                                                        <History size={18} />
+                                                        <History size={16} />
                                                     </button>
                                                 </div>
                                             </td>
@@ -902,6 +938,7 @@ const ClientOverviewDashboard = () => {
                     setShowDepositModal(false);
                 }}
                 userId={selectedClient?.clientId}
+                userIdString={selectedClient?.userId}
                 portfolio={selectedClient}
                 isAdmin={!(userRole === 'ROLE_MEDIATOR' || userRole === 'MEDIATOR')}
             />
@@ -918,6 +955,7 @@ const ClientOverviewDashboard = () => {
                 }}
                 portfolio={selectedClient} // Pass the selected client data
                 userId={selectedClient?.clientId}
+                userIdString={selectedClient?.userId}
                 isAdmin={!(userRole === 'ROLE_MEDIATOR' || userRole === 'MEDIATOR')}
             />
 
@@ -933,6 +971,7 @@ const ClientOverviewDashboard = () => {
                 }}
                 userId={selectedClient?.clientId}
                 clientName={selectedClient?.clientName}
+                portfolio={selectedClient}
             />
 
             <ClientHistoryModal

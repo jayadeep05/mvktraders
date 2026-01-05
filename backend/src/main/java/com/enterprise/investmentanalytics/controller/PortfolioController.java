@@ -22,10 +22,10 @@ public class PortfolioController {
 
     @GetMapping("/my")
     @PreAuthorize("hasRole('CLIENT')")
-    public ResponseEntity<Portfolio> getMyPortfolio() {
+    public ResponseEntity<com.enterprise.investmentanalytics.dto.response.PortfolioDTO> getMyPortfolio() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         String email = authentication.getName();
-        return ResponseEntity.ok(portfolioService.getPortfolioByEmail(email));
+        return ResponseEntity.ok(portfolioService.getPortfolioDTOByEmail(email));
     }
 
     @GetMapping("/all")

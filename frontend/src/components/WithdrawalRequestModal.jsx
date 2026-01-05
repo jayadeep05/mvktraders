@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { X, ArrowRight, Wallet, TrendingUp, DollarSign, CalendarCheck, Info, ShieldCheck, AlertTriangle } from 'lucide-react';
 import { withdrawalService } from '../services/api';
 
-const WithdrawalRequestModal = ({ show, onClose, portfolio, onSuccess, userId, isAdmin = false }) => {
+const WithdrawalRequestModal = ({ show, onClose, portfolio, onSuccess, userId, userIdString, isAdmin = false }) => {
     const [amountStr, setAmountStr] = useState('');
     const [isConfirming, setIsConfirming] = useState(false);
     const [submitting, setSubmitting] = useState(false);
@@ -103,13 +103,23 @@ const WithdrawalRequestModal = ({ show, onClose, portfolio, onSuccess, userId, i
 
     const handleConfirmSubmit = async () => {
         setSubmitting(true);
+        const token = localStorage.getItem('token');
+        let userRoles = [];
+        try {
+            userRoles = token ? (JSON.parse(atob(token.split('.')[1])).roles || []) : [];
+        } catch (e) {
+            console.error('Error parsing token roles', e);
+        }
+        const isMediator = Array.isArray(userRoles) && userRoles.includes('ROLE_MEDIATOR');
+
         try {
             let response;
-            if (isAdmin && userId) {
-                response = await withdrawalService.createRequestForUser(userId, amount);
-            } else if (userId && (localStorage.getItem('token') && (JSON.parse(atob(localStorage.getItem('token').split('.')[1])).rol || []).includes('ROLE_MEDIATOR'))) {
+            if (isAdmin && (userIdString || userId)) {
+                response = await withdrawalService.createRequestForUser(userIdString || userId, amount);
+            } else if (isMediator && (userIdString || userId)) {
+                // IMPORTANT: Mediator must use mediatorService
                 const { mediatorService } = await import('../services/api');
-                response = await mediatorService.createWithdrawalRequest(userId, amount, `Withdrawal request initiated by Mediator`);
+                response = await mediatorService.createWithdrawalRequest(userIdString || userId, amount, `Withdrawal request initiated by Mediator`);
             } else {
                 response = await withdrawalService.createRequest(amount);
             }

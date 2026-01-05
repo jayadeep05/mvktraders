@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { X, Upload, Copy, Check } from 'lucide-react';
 import { adminService } from '../services/api';
 
-const PayoutModal = ({ show, onClose, onSuccess, userId, clientName }) => {
+const PayoutModal = ({ show, onClose, onSuccess, userId, clientName, portfolio }) => {
     const [amount, setAmount] = useState('');
     const [screenshot, setScreenshot] = useState(null);
     const [error, setError] = useState('');
@@ -51,12 +51,28 @@ const PayoutModal = ({ show, onClose, onSuccess, userId, clientName }) => {
     const fetchClientDetails = async () => {
         setLoadingDetails(true);
         try {
-            // Assuming we have an endpoint to get portfolio by ID or similar
-            // In AdminController: getClientPortfolio(@PathVariable UUID id)
-            const response = await adminService.getClientPortfolio(userId);
-            // Assuming response contains user details nested or we might need to enhance the endpoint
-            // Currently Portfolio entity has 'user' field.
-            setClientPortfolio(response);
+            // If portfolio prop is provided (from ClientOverviewDashboard), use it directly
+            if (portfolio) {
+                // Map the portfolio structure to match expected format
+                const mappedPortfolio = {
+                    user: {
+                        userId: portfolio.userId,
+                        name: portfolio.clientName,
+                        mobile: portfolio.mobile || 'N/A',
+                        id: portfolio.clientId
+                    },
+                    availableProfit: portfolio.availableProfit,
+                    totalInvested: portfolio.totalInvested,
+                    totalValue: portfolio.currentValue,
+                    profitPercentage: portfolio.profitPercentage || 0,
+                    currentMonthProfit: portfolio.currentMonthProfit || 0
+                };
+                setClientPortfolio(mappedPortfolio);
+            } else {
+                // Fallback to API call for Admin
+                const response = await adminService.getClientPortfolio(userId);
+                setClientPortfolio(response);
+            }
         } catch (err) {
             console.error("Failed to load client details", err);
             setError("Could not load client details. Payout calculations might be inaccurate.");
@@ -137,6 +153,23 @@ Your future profits will be calculated based on the current active investment.`;
         }
     };
 
+    const [userRole, setUserRole] = useState(null);
+
+    useEffect(() => {
+        const token = localStorage.getItem('token');
+        if (token) {
+            try {
+                const payload = JSON.parse(atob(token.split('.')[1]));
+                const role = payload.rol ? payload.rol[0] : (payload.roles ? payload.roles[0] : null);
+                setUserRole(role);
+            } catch (e) {
+                console.error("Error parsing token", e);
+            }
+        }
+    }, [show]);
+
+    const isMediator = userRole === 'ROLE_MEDIATOR' || userRole === 'MEDIATOR';
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         setError('');
@@ -147,7 +180,8 @@ Your future profits will be calculated based on the current active investment.`;
             return;
         }
 
-        if (!screenshot) {
+        // Admin Validation: Screenshot Required (optional for Mediators)
+        if (!isMediator && !screenshot) {
             setError('Please upload a screenshot (proof of payment)');
             return;
         }
@@ -155,15 +189,25 @@ Your future profits will be calculated based on the current active investment.`;
         setSubmitting(true);
 
         try {
-            const formData = new FormData();
-            formData.append('userId', userId);
-            formData.append('amount', amountNum);
-            formData.append('screenshot', screenshot);
-            formData.append('message', generatedMessage); // Send the exact previewed message
+            let response;
+            if (isMediator) {
+                // Mediator Flow: Submit Request
+                const { mediatorService } = await import('../services/api');
+                // Use userId (UUID) not formatted userIdString if possible, but API expects userId UUID
+                // The prop 'userId' passed from Dashboard is actually 'clientId' (UUID)
+                const note = document.querySelector('.note-area').value;
+                response = await mediatorService.createPayoutRequest(userId, amountNum, note);
+            } else {
+                // Admin Flow: Direct Payout
+                const formData = new FormData();
+                formData.append('userId', userId);
+                formData.append('amount', amountNum);
+                formData.append('screenshot', screenshot);
+                formData.append('message', generatedMessage);
+                response = await adminService.payout(formData);
+            }
 
-            const response = await adminService.payout(formData);
-
-            onSuccess && onSuccess(response.transaction);
+            onSuccess && onSuccess(response?.transaction || response);
             onClose();
         } catch (err) {
             console.error('Error processing payout:', err);
@@ -321,7 +365,7 @@ Your future profits will be calculated based on the current active investment.`;
                                     border: 'none', borderRadius: '12px', color: '#ffffff', fontSize: '14px', fontWeight: '700',
                                     cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.7 : 1,
                                     boxShadow: '0 4px 12px rgba(99, 102, 241, 0.3)'
-                                }}>{submitting ? 'Processing...' : 'Confirm Payout'}</button>
+                                }}>{submitting ? 'Processing...' : (isMediator ? 'Request Payout' : 'Confirm Payout')}</button>
                             </div>
                         </form>
                     </div>
@@ -362,8 +406,6 @@ Your future profits will be calculated based on the current active investment.`;
                                 generatedMessage || "Enter payout details to see the message preview..."
                             )}
                         </div>
-
-
                     </div>
                 </div>
             </div>

@@ -50,24 +50,39 @@ public class User implements UserDetails {
     @Column(name = "bank_name")
     private String bankName;
 
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @Column(nullable = false, columnDefinition = "VARBINARY(255)")
     private String password; // Hashed password (bcrypt)
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
+    @Column(nullable = false, length = 50)
     private Role role;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
+    @Column(nullable = false, length = 50)
     private UserStatus status;
 
     @CreationTimestamp
     @Column(updatable = false, name = "created_at", columnDefinition = "DATETIME(6)")
     private LocalDateTime createdAt;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "mediator_id")
+    private User mediator;
+
     @UpdateTimestamp
     @Column(name = "updated_at", columnDefinition = "DATETIME(6)")
     private LocalDateTime updatedAt;
+
+    @Column(name = "is_deleted", nullable = false, columnDefinition = "BOOLEAN DEFAULT FALSE")
+    @Builder.Default
+    private boolean isDeleted = false;
+
+    @Column(name = "deleted_at")
+    private LocalDateTime deletedAt;
+
+    @Column(name = "deleted_by")
+    private String deletedBy;
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {

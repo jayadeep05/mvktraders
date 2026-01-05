@@ -27,71 +27,117 @@ public class PortfolioService {
                                 .orElseThrow(() -> new RuntimeException("Portfolio not found for user: " + email));
         }
 
+        public com.enterprise.investmentanalytics.dto.response.PortfolioDTO getPortfolioDTOByEmail(String email) {
+                Portfolio portfolio = getPortfolioByEmail(email);
+                return com.enterprise.investmentanalytics.dto.response.PortfolioDTO.builder()
+                                .id(portfolio.getId())
+                                .totalValue(portfolio.getTotalValue())
+                                .totalInvested(portfolio.getTotalInvested())
+                                .profitPercentage(portfolio.getProfitPercentage())
+                                .profitAccrualStatus(portfolio.getProfitAccrualStatus())
+                                .availableProfit(portfolio.getAvailableProfit())
+                                .totalProfitEarned(portfolio.getTotalProfitEarned())
+                                .updatedAt(portfolio.getUpdatedAt())
+                                .build();
+        }
+
         public List<Portfolio> getAllPortfolios() {
                 return portfolioRepository.findAll();
         }
 
-        public Portfolio createPortfolioForUser(User user, BigDecimal initialValue) {
+        public Portfolio createPortfolioForUser(User user, BigDecimal initialValue, BigDecimal profitPercentage) {
                 if (portfolioRepository.findByUserId(user.getId()).isPresent()) {
                         return portfolioRepository.findByUserId(user.getId()).get();
                 }
                 Portfolio portfolio = Portfolio.builder()
                                 .user(user)
                                 .totalValue(initialValue)
-                                .totalInvested(initialValue) // Initial investment equals total value
-
+                                .totalInvested(initialValue)
+                                .profitPercentage(profitPercentage)
+                                .profitAccrualStatus(
+                                                com.enterprise.investmentanalytics.model.enums.ProfitAccrualStatus.ACTIVE)
+                                .availableProfit(BigDecimal.ZERO)
+                                .totalProfitEarned(BigDecimal.ZERO)
                                 .build();
                 return portfolioRepository.save(portfolio);
         }
 
+        public Portfolio createPortfolioForUser(User user, BigDecimal initialValue) {
+                return createPortfolioForUser(user, initialValue, BigDecimal.ZERO);
+        }
+
         public List<com.enterprise.investmentanalytics.dto.response.AdminClientSummaryDTO> getAdminClientSummaries() {
-                List<Portfolio> portfolios = portfolioRepository.findAll();
-                return portfolios.stream().map(portfolio -> {
-                        // 1. Capital Invested (Base) - Null safe
-                        BigDecimal invested = portfolio.getTotalInvested() != null ? portfolio.getTotalInvested()
-                                        : BigDecimal.ZERO;
+                return portfolioRepository.findAllWithDetails().stream()
+                                .filter(p -> !p.getUser().isDeleted())
+                                .filter(p -> p.getUser()
+                                                .getStatus() == com.enterprise.investmentanalytics.model.enums.UserStatus.ACTIVE)
+                                .map(this::mapToSummaryDTO)
+                                .collect(java.util.stream.Collectors.toList());
+        }
 
-                        // 2. Available Profit (Withdrawable) - Null safe
-                        BigDecimal availableProfit = portfolio.getAvailableProfit() != null
-                                        ? portfolio.getAvailableProfit()
-                                        : BigDecimal.ZERO;
+        public List<com.enterprise.investmentanalytics.dto.response.AdminClientSummaryDTO> getClientSummariesByMediator(
+                        java.util.UUID mediatorId) {
+                return portfolioRepository.findByUserMediatorId(mediatorId).stream()
+                                .filter(p -> !p.getUser().isDeleted())
+                                .filter(p -> p.getUser()
+                                                .getStatus() == com.enterprise.investmentanalytics.model.enums.UserStatus.ACTIVE)
+                                .map(this::mapToSummaryDTO)
+                                .collect(java.util.stream.Collectors.toList());
+        }
 
-                        // 3. Current Balance = Invested + Available Profit (Dynamic calculation for
-                        // consistency)
-                        BigDecimal currentBalance = invested.add(availableProfit);
+        private com.enterprise.investmentanalytics.dto.response.AdminClientSummaryDTO mapToSummaryDTO(
+                        Portfolio portfolio) {
+                // 1. Capital Invested (Base) - Null safe
+                BigDecimal invested = portfolio.getTotalInvested() != null ? portfolio.getTotalInvested()
+                                : BigDecimal.ZERO;
 
-                        // 4. Total Profit Earned (Lifetime) - Null safe
-                        BigDecimal lifetimeProfit = portfolio.getTotalProfitEarned() != null
-                                        ? portfolio.getTotalProfitEarned()
-                                        : BigDecimal.ZERO;
+                // 2. Available Profit (Withdrawable) - Null safe
+                BigDecimal availableProfit = portfolio.getAvailableProfit() != null
+                                ? portfolio.getAvailableProfit()
+                                : BigDecimal.ZERO;
 
-                        // Growth Calculation (Based on Lifetime Profit / Invested as per standard
-                        // performance metric)
-                        Double growth = invested.compareTo(BigDecimal.ZERO) > 0
-                                        ? lifetimeProfit.divide(invested, 4, java.math.RoundingMode.HALF_UP)
-                                                        .multiply(BigDecimal.valueOf(100))
-                                                        .doubleValue()
-                                        : 0.0;
+                // 3. Current Balance = Invested + Available Profit (Dynamic calculation for
+                // consistency)
+                BigDecimal currentBalance = invested.add(availableProfit);
 
-                        return com.enterprise.investmentanalytics.dto.response.AdminClientSummaryDTO.builder()
-                                        .clientId(portfolio.getUser().getId())
-                                        .clientName(portfolio.getUser().getName())
-                                        .email(portfolio.getUser().getEmail())
-                                        .totalInvested(invested)
-                                        .currentValue(currentBalance)
-                                        .profitOrLoss(lifetimeProfit) // UI "Profit" column shows Lifetime Earnings
-                                        .availableProfit(availableProfit) // Required for Withdrawal Modal
-                                        .totalProfitEarned(lifetimeProfit) // Explicit field for other uses
-                                        .growthPercentage(growth)
-                                        .lastUpdated(portfolio.getUpdatedAt())
-                                        .profitPercentage(portfolio.getProfitPercentage())
-                                        .profitStatus(portfolio.getProfitAccrualStatus())
-                                        .userId(portfolio.getUser().getUserId())
-                                        .mobile(portfolio.getUser().getMobile())
-                                        .status(portfolio.getUser().getStatus())
+                // 4. Total Profit Earned (Lifetime) - Null safe
+                BigDecimal lifetimeProfit = portfolio.getTotalProfitEarned() != null
+                                ? portfolio.getTotalProfitEarned()
+                                : BigDecimal.ZERO;
 
-                                        .build();
-                }).collect(java.util.stream.Collectors.toList());
+                // Growth Calculation
+                Double growth = invested.compareTo(BigDecimal.ZERO) > 0
+                                ? lifetimeProfit.divide(invested, 4, java.math.RoundingMode.HALF_UP)
+                                                .multiply(BigDecimal.valueOf(100))
+                                                .doubleValue()
+                                : 0.0;
+
+                return com.enterprise.investmentanalytics.dto.response.AdminClientSummaryDTO.builder()
+                                .clientId(portfolio.getUser().getId())
+                                .clientName(portfolio.getUser().getName())
+                                .email(portfolio.getUser().getEmail())
+                                .totalInvested(invested)
+                                .currentValue(currentBalance)
+                                .profitOrLoss(lifetimeProfit) // UI "Profit" column shows Lifetime Earnings
+                                .availableProfit(availableProfit) // Required for Withdrawal Modal
+                                .totalProfitEarned(lifetimeProfit) // Explicit field for other uses
+                                .growthPercentage(growth)
+                                .lastUpdated(portfolio.getUpdatedAt())
+                                .profitPercentage(portfolio.getProfitPercentage())
+                                .profitStatus(portfolio.getProfitAccrualStatus())
+                                .userId(portfolio.getUser().getUserId()) // Business ID
+                                .mobile(portfolio.getUser().getMobile())
+                                .status(portfolio.getUser().getStatus())
+                                .mediatorName(portfolio.getUser().getMediator() != null
+                                                ? portfolio.getUser().getMediator().getName()
+                                                : "Direct")
+                                .mediatorId(portfolio.getUser().getMediator() != null
+                                                ? portfolio.getUser().getMediator().getId()
+                                                : null)
+                                .mediatorUserId(portfolio.getUser().getMediator() != null
+                                                ? portfolio.getUser().getMediator().getUserId()
+                                                : null)
+                                .build();
         }
 
         // Clean up unused repository if strictly not needed, but generally good to keep

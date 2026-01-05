@@ -5,6 +5,7 @@ import com.enterprise.investmentanalytics.dto.request.ChangePasswordRequest;
 import com.enterprise.investmentanalytics.dto.request.RegisterRequest;
 import com.enterprise.investmentanalytics.dto.response.AuthenticationResponse;
 import com.enterprise.investmentanalytics.model.entity.User;
+import com.enterprise.investmentanalytics.model.enums.Role;
 import com.enterprise.investmentanalytics.model.enums.UserStatus;
 import com.enterprise.investmentanalytics.repository.UserRepository;
 import com.enterprise.investmentanalytics.security.JwtService;
@@ -22,7 +23,8 @@ public class AuthenticationService {
         private final JwtService jwtService;
         private final AuthenticationManager authenticationManager;
         private final AuditService auditService;
-        private final UserIdGeneratorService userIdGeneratorService;
+        private final PortfolioService portfolioService;
+        private final com.enterprise.investmentanalytics.service.UserIdGeneratorService userIdGeneratorService;
 
         public AuthenticationResponse register(RegisterRequest request) {
                 // Step 1: Assign sequential IDs before save
@@ -56,26 +58,59 @@ public class AuthenticationService {
                                 .build();
         }
 
-        public void registerPending(RegisterRequest request, String mediatorEmail) {
+        public void registerPending(RegisterRequest request, User mediator) {
+                // Ensure we have a managed mediator entity
+                User managedMediator = repository.findById(mediator.getId())
+                                .orElseThrow(() -> new RuntimeException("Mediator not found"));
+
                 // Assign sequential IDs
                 Long nId = userIdGeneratorService.getNextNId(repository);
                 String userId = userIdGeneratorService.generateUserIdFromNId(nId);
 
+                // Mapping logic for different frontend keys
+                String name = request.getName() != null ? request.getName() : request.getFullName();
+                String mobile = request.getMobile() != null ? request.getMobile() : request.getPhoneNumber();
+                String email = request.getEmail();
+
+                if (email == null || email.isEmpty()) {
+                        if (name != null && !name.isEmpty()) {
+                                email = name.toLowerCase().replace(" ", ".") + "@mvktraders.com";
+                        } else {
+                                throw new RuntimeException("Email or Name is required");
+                        }
+                }
+
+                if (repository.findByEmail(email).isPresent()) {
+                        throw new RuntimeException("User with email " + email + " already exists");
+                }
+
+                String rawPassword = (request.getPassword() != null && !request.getPassword().isEmpty())
+                                ? request.getPassword()
+                                : "client@321";
+
                 var user = User.builder()
-                                .name(request.getName())
-                                .email(request.getEmail())
-                                .password(passwordEncoder.encode(request.getPassword()))
-                                .role(request.getRole())
+                                .name(name)
+                                .email(email)
+                                .password(passwordEncoder.encode(rawPassword))
+                                .role(request.getRole() != null ? request.getRole()
+                                                : com.enterprise.investmentanalytics.model.enums.Role.CLIENT)
                                 .status(UserStatus.PENDING_APPROVAL)
-                                .mobile(request.getMobile())
+                                .mobile(mobile)
                                 .sequentialId(nId)
                                 .userId(userId)
+                                .mediator(managedMediator)
                                 .build();
 
                 var savedUser = repository.save(user);
 
+                // create portfolio immediately
+                if (request.getInvestmentAmount() != null) {
+                        portfolioService.createPortfolioForUser(savedUser, request.getInvestmentAmount(),
+                                        request.getPercentageOffered());
+                }
+
                 auditService.log("REQUEST_CREATE_USER", "MEDIATOR",
-                                "Mediator " + mediatorEmail + " requested user " + savedUser.getUserId());
+                                "Mediator " + managedMediator.getEmail() + " requested user " + savedUser.getUserId());
         }
 
         public AuthenticationResponse authenticate(AuthenticationRequest request) {

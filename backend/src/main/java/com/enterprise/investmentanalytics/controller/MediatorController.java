@@ -63,11 +63,11 @@ public class MediatorController {
 
         @PostMapping("/withdrawal-request/{userId}")
         public ResponseEntity<?> createWithdrawalRequest(
-                        @PathVariable UUID userId,
+                        @PathVariable String userId,
                         @RequestBody Map<String, Object> request,
                         @AuthenticationPrincipal User mediator) {
 
-                User client = userRepository.findById(userId)
+                User client = userRepository.findByUserId(userId)
                                 .orElseThrow(() -> new RuntimeException("Client not found"));
 
                 // Verify mediator owns this client
@@ -82,16 +82,20 @@ public class MediatorController {
                 }
 
                 java.math.BigDecimal amount = new java.math.BigDecimal(request.get("amount").toString());
-                return ResponseEntity.ok(withdrawalService.createWithdrawalRequest(userId, amount));
+                com.enterprise.investmentanalytics.dto.response.WithdrawalRequestDTO dto = withdrawalService.createWithdrawalRequest(client.getId(), amount);
+                return ResponseEntity.ok(Map.of(
+                                "success", true,
+                                "message", "Withdrawal request submitted successfully",
+                                "request", dto));
         }
 
         @PostMapping("/payout-request/{userId}")
         public ResponseEntity<?> createPayoutRequest(
-                        @PathVariable UUID userId,
+                        @PathVariable String userId,
                         @RequestBody Map<String, Object> request,
                         @AuthenticationPrincipal User mediator) {
 
-                User client = userRepository.findById(userId)
+                User client = userRepository.findByUserId(userId)
                                 .orElseThrow(() -> new RuntimeException("Client not found"));
 
                 if (client.getMediator() == null || !client.getMediator().getId().equals(mediator.getId())) {
@@ -107,7 +111,7 @@ public class MediatorController {
                 java.math.BigDecimal amount = new java.math.BigDecimal(request.get("amount").toString());
                 String note = (String) request.getOrDefault("note", "");
 
-                return ResponseEntity.ok(payoutRequestService.createRequest(userId, amount, note));
+                return ResponseEntity.ok(payoutRequestService.createRequest(client.getId(), amount, note));
         }
 
         @PostMapping("/deposit-request/{userId}")

@@ -14,14 +14,15 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Object> handleException(Exception ex) {
+        ex.printStackTrace(); // Log the full stack trace
         Map<String, Object> body = new HashMap<>();
         body.put("timestamp", LocalDateTime.now());
         body.put("message", ex.getMessage());
         body.put("status", HttpStatus.INTERNAL_SERVER_ERROR.value());
-        
+
         return new ResponseEntity<>(body, HttpStatus.INTERNAL_SERVER_ERROR);
     }
-    
+
     // Add specific handlers for EntityNotFound, etc. in a real app
     // e.g., UsernameNotFoundException, BadCredentialsException
 }

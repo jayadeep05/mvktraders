@@ -1,9 +1,9 @@
 spring:
   datasource:
     # url: jdbc:mysql://localhost:3306/investment_analysis
-    url: jdbc:mysql://mvktraders-db-1.cni6yeg6u1o4.us-east-1.rds.amazonaws.com:3306/investment_analysis
     # username: root
     # password: "#JAYA1708!!"
+    url: jdbc:mysql://localhost:3306/investment_analysis
     username: app_user
     password: "mSRINIVAS777!!"
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -11,7 +11,6 @@ spring:
     database-platform: org.hibernate.dialect.MySQL8Dialect
     defer-datasource-initialization: true
     hibernate:
-      # ddl-auto: validate
       ddl-auto: update
   
 h2:

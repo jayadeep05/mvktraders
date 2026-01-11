@@ -25,6 +25,7 @@ public class WithdrawalService {
     private final WithdrawalRequestRepository withdrawalRequestRepository;
     private final UserRepository userRepository;
     private final PortfolioRepository portfolioRepository;
+    private final com.enterprise.investmentanalytics.repository.TransactionRepository transactionRepository;
 
     @Transactional
     public WithdrawalRequestDTO createWithdrawalRequest(UUID userId, BigDecimal amount) {
@@ -109,6 +110,16 @@ public class WithdrawalService {
         }
 
         portfolioRepository.save(portfolio);
+
+        // Create transaction record
+        com.enterprise.investmentanalytics.model.entity.Transaction transaction = com.enterprise.investmentanalytics.model.entity.Transaction
+                .builder()
+                .user(request.getUser())
+                .type(com.enterprise.investmentanalytics.model.enums.TransactionType.WITHDRAWAL)
+                .amount(request.getAmount())
+                .description("Withdrawal approved - " + (paymentMode != null ? paymentMode : "Direct"))
+                .build();
+        transactionRepository.save(transaction);
 
         // Update request status
         request.setStatus(WithdrawalStatus.APPROVED);

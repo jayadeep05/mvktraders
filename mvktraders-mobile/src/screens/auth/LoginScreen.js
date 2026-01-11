@@ -35,6 +35,11 @@ export default function LoginScreen() {
         try {
             await login(email, password);
         } catch (error) {
+            console.error('Login Error details:', {
+                message: error.message,
+                response: error.response?.data,
+                status: error.response?.status
+            });
             const msg = error.response?.data?.message || error.message || 'Login failed';
             Alert.alert('Login Failed', msg);
         } finally {

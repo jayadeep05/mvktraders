@@ -1,0 +1,476 @@
+import React, { useState, useMemo, useCallback, useRef } from 'react';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, ActivityIndicator, RefreshControl, Modal, Alert, Dimensions, Platform } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
+import { useTheme } from '../../context/ThemeContext';
+import { adminService } from '../../api/admin';
+import {
+    ArrowLeft, Search, X, Check, XCircle,
+    Clock, Calendar, User, FileText,
+    ShieldAlert, ChevronRight, AlertCircle,
+    Copy, Trash2, Mail
+} from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+
+const { width } = Dimensions.get('window');
+
+export default function AdminDeleteRequests({ navigation }) {
+    const { theme } = useTheme();
+    const styles = useMemo(() => getStyles(theme), [theme]);
+
+    const [requests, setRequests] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
+    const [processing, setProcessing] = useState(false);
+
+    // UI State
+    const [activeTab, setActiveTab] = useState('All');
+    const TABS = ['All', 'Pending', 'Approved', 'Rejected'];
+    const pagerRef = useRef(null);
+    const [searchVisible, setSearchVisible] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [selectedRequest, setSelectedRequest] = useState(null);
+    const [showApprovalInput, setShowApprovalInput] = useState(false);
+    const [adminPassword, setAdminPassword] = useState('');
+
+    const loadRequests = async () => {
+        try {
+            const data = await adminService.getAllDeleteRequests();
+            const sorted = data.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+            setRequests(sorted);
+        } catch (error) {
+            console.error('Failed to load delete requests', error);
+        } finally {
+            setLoading(false);
+            setRefreshing(false);
+        }
+    };
+
+    useFocusEffect(
+        useCallback(() => {
+            loadRequests();
+        }, [])
+    );
+
+    const handleApprove = async () => {
+        if (!adminPassword) {
+            Alert.alert('Error', 'Please enter your admin password to confirm deletion');
+            return;
+        }
+        setProcessing(true);
+        try {
+            await adminService.approveDeleteRequest(selectedRequest.id, adminPassword);
+            Alert.alert('Success', 'User has been deleted successfully');
+            setSelectedRequest(null);
+            setShowApprovalInput(false);
+            setAdminPassword('');
+            loadRequests();
+        } catch (error) {
+            Alert.alert('Error', error.response?.data?.message || 'Failed to approve delete request. Check password.');
+        } finally {
+            setProcessing(false);
+        }
+    };
+
+    const handleReject = async (id) => {
+        setProcessing(true);
+        try {
+            await adminService.rejectDeleteRequest(id);
+            Alert.alert('Success', 'Delete request rejected');
+            setSelectedRequest(null);
+            loadRequests();
+        } catch (error) {
+            Alert.alert('Error', error.response?.data?.message || 'Failed to reject request');
+        } finally {
+            setProcessing(false);
+        }
+    };
+
+    const getFilteredData = useCallback((tab) => {
+        let result = requests;
+        if (tab !== 'All') {
+            const statusMap = { 'Pending': 'PENDING', 'Approved': 'APPROVED', 'Rejected': 'REJECTED' };
+            result = result.filter(r => r.status === statusMap[tab]);
+        }
+        if (searchQuery) {
+            const lowerQuery = searchQuery.toLowerCase();
+            result = result.filter(r =>
+                (r.targetUser?.name && r.targetUser.name.toLowerCase().includes(lowerQuery)) ||
+                (r.targetUser?.email && r.targetUser.email.toLowerCase().includes(lowerQuery)) ||
+                (r.reason && r.reason.toLowerCase().includes(lowerQuery))
+            );
+        }
+        return result;
+    }, [requests, searchQuery]);
+
+    const handleTabPress = (tab) => {
+        setActiveTab(tab);
+        const index = TABS.indexOf(tab);
+        pagerRef.current?.scrollToIndex({ index, animated: true });
+    };
+
+    const renderHeader = () => {
+        if (searchVisible) {
+            return (
+                <View style={styles.header}>
+                    <View style={styles.searchContainer}>
+                        <Search size={18} color={theme.textSecondary} />
+                        <TextInput
+                            style={styles.searchInput}
+                            placeholder="Search user name or email..."
+                            placeholderTextColor={theme.textSecondary}
+                            value={searchQuery}
+                            onChangeText={setSearchQuery}
+                            autoFocus
+                        />
+                        <TouchableOpacity onPress={() => { setSearchVisible(false); setSearchQuery(''); }}>
+                            <X size={18} color={theme.textSecondary} />
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            );
+        }
+        return (
+            <View style={styles.header}>
+                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+                    <ArrowLeft size={24} color={theme.textPrimary} />
+                </TouchableOpacity>
+                <View style={styles.headerTitleContainer}>
+                    <Text style={styles.headerTitle}>Delete Requests</Text>
+                    <View style={styles.headerBadge}><Text style={styles.headerBadgeText}>{getFilteredData(activeTab).length}</Text></View>
+                </View>
+                <TouchableOpacity onPress={() => setSearchVisible(true)} style={styles.searchBtn}>
+                    <Search size={22} color={theme.textPrimary} />
+                </TouchableOpacity>
+            </View>
+        );
+    };
+
+    const renderItem = ({ item }) => {
+        const isPending = item.status === 'PENDING';
+        const isApproved = item.status === 'APPROVED';
+        const statusColor = isPending ? theme.warning : isApproved ? theme.success : theme.error;
+        const statusBg = isPending ? theme.warningBg : isApproved ? theme.successBg : theme.errorBg;
+
+        return (
+            <TouchableOpacity
+                activeOpacity={0.7}
+                style={styles.card}
+                onPress={() => {
+                    setSelectedRequest(item);
+                    setShowApprovalInput(false);
+                    setAdminPassword('');
+                }}
+            >
+                <View style={[styles.statusIndicator, { backgroundColor: statusColor }]} />
+                <View style={styles.cardContent}>
+                    <View style={styles.cardMain}>
+                        <View style={{ flex: 1 }}>
+                            <Text
+                                style={styles.clientName}
+                                numberOfLines={1}
+                                adjustsFontSizeToFit={true}
+                                minimumFontScale={0.7}
+                            >
+                                {item.targetUser?.name || 'Unknown User'}
+                            </Text>
+                            <View style={styles.metaRow}>
+                                <Text style={styles.dateText}>{new Date(item.createdAt).toLocaleDateString()}</Text>
+                            </View>
+                        </View>
+                        <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
+                            <View style={[styles.statusPill, { backgroundColor: statusBg }]}>
+                                <Text style={[styles.statusPillText, { color: statusColor }]}>{item.status}</Text>
+                            </View>
+                        </View>
+                    </View>
+                </View>
+            </TouchableOpacity>
+        );
+    };
+
+    return (
+        <SafeAreaView style={styles.container}>
+            {renderHeader()}
+
+            <View style={styles.tabsWrapper}>
+                {TABS.map((tab) => (
+                    <TouchableOpacity
+                        key={tab}
+                        style={[styles.tabButton, activeTab === tab && styles.tabButtonActive]}
+                        onPress={() => handleTabPress(tab)}
+                    >
+                        <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>{tab}</Text>
+                        {activeTab === tab && <View style={styles.activeTabDot} />}
+                    </TouchableOpacity>
+                ))}
+            </View>
+
+            {loading ? (
+                <View style={styles.center}><ActivityIndicator size="large" color={theme.primary} /></View>
+            ) : (
+                <FlatList
+                    ref={pagerRef}
+                    horizontal
+                    pagingEnabled
+                    showsHorizontalScrollIndicator={false}
+                    data={TABS}
+                    keyExtractor={tab => tab}
+                    onMomentumScrollEnd={(e) => {
+                        const index = Math.round(e.nativeEvent.contentOffset.x / width);
+                        setActiveTab(TABS[index]);
+                    }}
+                    renderItem={({ item: tab }) => (
+                        <View style={{ width }}>
+                            <FlatList
+                                data={getFilteredData(tab)}
+                                renderItem={renderItem}
+                                keyExtractor={item => item.id.toString()}
+                                contentContainerStyle={styles.list}
+                                initialNumToRender={10}
+                                maxToRenderPerBatch={10}
+                                windowSize={5}
+                                removeClippedSubviews={Platform.OS === 'android'}
+                                refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadRequests(); }} tintColor={theme.primary} />}
+                                ListEmptyComponent={
+                                    <View style={styles.emptyState}>
+                                        <AlertCircle size={48} color={theme.cardBorder} />
+                                        <Text style={styles.emptyText}>No delete requests found</Text>
+                                    </View>
+                                }
+                            />
+                        </View>
+                    )}
+                />
+            )}
+
+            {/* Detail Popup Modal */}
+            <Modal transparent visible={!!selectedRequest} animationType="fade" onRequestClose={() => setSelectedRequest(null)}>
+                <View style={styles.modalOverlay}>
+                    <View style={styles.modalContainer}>
+                        {selectedRequest && (
+                            <>
+                                <LinearGradient
+                                    colors={
+                                        selectedRequest.status === 'PENDING' ? [theme.warning + '20', theme.cardBg] :
+                                            selectedRequest.status === 'APPROVED' ? [theme.success + '20', theme.cardBg] :
+                                                [theme.error + '20', theme.cardBg]
+                                    }
+                                    style={styles.modalHeader}
+                                >
+                                    <View style={styles.modalHeaderTop}>
+                                        <Text style={styles.modalSubtitle}>Account Deletion</Text>
+                                        <TouchableOpacity style={styles.modalCloseBtn} onPress={() => setSelectedRequest(null)}>
+                                            <X size={20} color={theme.textPrimary} />
+                                        </TouchableOpacity>
+                                    </View>
+
+                                    <View style={styles.profileSection}>
+                                        <View style={styles.avatarPlaceholder}>
+                                            <User size={32} color={theme.error} />
+                                        </View>
+                                        <View style={styles.profileInfo}>
+                                            <Text
+                                                style={styles.modalClientName}
+                                                numberOfLines={1}
+                                                adjustsFontSizeToFit={true}
+                                                minimumFontScale={0.7}
+                                            >
+                                                {selectedRequest.targetUser?.name || 'Unknown User'}
+                                            </Text>
+
+                                        </View>
+                                    </View>
+                                </LinearGradient>
+
+                                <View style={styles.modalBody}>
+                                    <View style={styles.infoShowcase}>
+                                        <View style={styles.amountShowcase}>
+                                            <ShieldAlert size={24} color={theme.error} style={{ marginBottom: 8 }} />
+                                            <Text style={styles.amountLabel}>Deletion Reason</Text>
+                                            <Text style={[styles.amountValueMain, { fontSize: 16, textAlign: 'center' }]}>{selectedRequest.reason || 'No reason provided'}</Text>
+                                            <View style={[styles.statusTag, { backgroundColor: selectedRequest.status === 'PENDING' ? theme.warningBg : selectedRequest.status === 'APPROVED' ? theme.successBg : theme.errorBg }]}>
+                                                <Text style={[styles.statusTagText, { color: selectedRequest.status === 'PENDING' ? theme.warning : selectedRequest.status === 'APPROVED' ? theme.success : theme.error }]}>
+                                                    {selectedRequest.status}
+                                                </Text>
+                                            </View>
+                                        </View>
+
+                                        <View style={styles.detailsGrid}>
+                                            <View style={styles.detailsItem}>
+                                                <Calendar size={18} color={theme.primary} />
+                                                <View style={styles.detailsItemContent}>
+                                                    <Text style={styles.detailsItemLabel}>Requested Date</Text>
+                                                    <Text style={styles.detailsItemValue}>{new Date(selectedRequest.createdAt).toLocaleDateString()}</Text>
+                                                </View>
+                                            </View>
+                                            <View style={styles.detailsItem}>
+                                                <Clock size={18} color={theme.primary} />
+                                                <View style={styles.detailsItemContent}>
+                                                    <Text style={styles.detailsItemLabel}>Requested Time</Text>
+                                                    <Text style={styles.detailsItemValue}>{new Date(selectedRequest.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
+                                                </View>
+                                            </View>
+                                        </View>
+
+                                        <View style={styles.modalNoteBox}>
+                                            <View style={styles.noteBoxHeader}>
+                                                <User size={16} color={theme.textSecondary} />
+                                                <Text style={styles.noteBoxTitle}>Requested By</Text>
+                                            </View>
+                                            <Text style={styles.noteBoxContent}>{selectedRequest.requester?.name} ({selectedRequest.requester?.role})</Text>
+                                        </View>
+                                    </View>
+
+                                    <View style={styles.modalFooter}>
+                                        {selectedRequest.status === 'PENDING' && !showApprovalInput && (
+                                            <View style={styles.actionGrid}>
+                                                <TouchableOpacity
+                                                    style={[styles.primaryActionBtn, { backgroundColor: theme.cardBorder + '50' }]}
+                                                    onPress={() => handleReject(selectedRequest.id)}
+                                                    disabled={processing}
+                                                >
+                                                    <XCircle size={18} color={theme.textPrimary} />
+                                                    <Text style={[styles.actionBtnLabel, { color: theme.textPrimary }]}>Reject</Text>
+                                                </TouchableOpacity>
+
+                                                <TouchableOpacity
+                                                    style={[styles.primaryActionBtn, { backgroundColor: theme.error }]}
+                                                    onPress={() => setShowApprovalInput(true)}
+                                                >
+                                                    <Trash2 size={18} color="#fff" />
+                                                    <Text style={[styles.actionBtnLabel, { color: '#fff' }]}>Confirm Delete</Text>
+                                                </TouchableOpacity>
+                                            </View>
+                                        )}
+
+                                        {showApprovalInput && (
+                                            <View style={styles.enhancedActionBox}>
+                                                <Text style={styles.rejectionLabel}>ADMIN PASSWORD REQUIRED</Text>
+                                                <TextInput
+                                                    style={styles.rejectionTextarea}
+                                                    placeholder="Enter your password to authorize deletion..."
+                                                    placeholderTextColor={theme.textSecondary}
+                                                    value={adminPassword}
+                                                    onChangeText={setAdminPassword}
+                                                    secureTextEntry
+                                                    height={55}
+                                                    autoFocus
+                                                />
+                                                <View style={styles.rejectionGrid}>
+                                                    <TouchableOpacity style={styles.rejectionCancel} onPress={() => setShowApprovalInput(false)}>
+                                                        <Text style={styles.rejectionCancelText}>Cancel</Text>
+                                                    </TouchableOpacity>
+                                                    <TouchableOpacity
+                                                        style={[styles.rejectionConfirm, { backgroundColor: theme.error }]}
+                                                        onPress={handleApprove}
+                                                        disabled={processing}
+                                                    >
+                                                        {processing ? <ActivityIndicator size="small" color="#fff" /> : (
+                                                            <Text style={styles.rejectionConfirmText}>Execute Deletion</Text>
+                                                        )}
+                                                    </TouchableOpacity>
+                                                </View>
+                                            </View>
+                                        )}
+                                    </View>
+                                </View>
+                            </>
+                        )}
+                    </View>
+                </View>
+            </Modal>
+        </SafeAreaView>
+    );
+}
+
+const getStyles = (theme) => StyleSheet.create({
+    container: { flex: 1, backgroundColor: theme.background },
+    center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+
+    // Header
+    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 12, backgroundColor: theme.background },
+    headerTitleContainer: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    headerTitle: { fontSize: 22, fontWeight: '800', color: theme.textPrimary, letterSpacing: -0.5 },
+    headerBadge: { backgroundColor: theme.primary + '15', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8 },
+    headerBadgeText: { color: theme.primary, fontSize: 12, fontWeight: '700' },
+    backBtn: { padding: 4 },
+    searchBtn: { padding: 4, transform: [{ scale: 0.9 }] },
+
+    // Search
+    searchContainer: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: theme.cardBg, borderRadius: 14, paddingHorizontal: 12, height: 46, borderWidth: 1, borderColor: theme.cardBorder },
+    searchInput: { flex: 1, marginLeft: 10, color: theme.textPrimary, fontSize: 15, fontWeight: '500' },
+
+    // Tabs
+    tabsWrapper: { flexDirection: 'row', marginVertical: 8, paddingHorizontal: 20, gap: 8 },
+    tabButton: { flex: 1, paddingVertical: 10, borderRadius: 12, backgroundColor: 'transparent', position: 'relative', alignItems: 'center', justifyContent: 'center' },
+    tabButtonActive: { backgroundColor: theme.cardBg, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
+    tabText: { color: theme.textSecondary, fontWeight: '600', fontSize: 14 },
+    tabTextActive: { color: theme.primary, fontWeight: '700' },
+    activeTabDot: { position: 'absolute', bottom: -4, alignSelf: 'center', width: 4, height: 4, borderRadius: 2, backgroundColor: theme.primary },
+
+    // List
+    list: { paddingHorizontal: 20, paddingBottom: 30 },
+    card: { backgroundColor: theme.cardBg, borderRadius: 20, marginBottom: 14, overflow: 'hidden', borderWidth: 1, borderColor: theme.cardBorder, flexDirection: 'row' },
+    statusIndicator: { width: 4, height: '100%' },
+    cardContent: { flex: 1, padding: 16 },
+    cardMain: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+    clientName: { fontSize: 17, fontWeight: '700', color: theme.textPrimary, marginBottom: 4 },
+    metaRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    userIdText: { fontSize: 13, color: theme.textSecondary, fontWeight: '500' },
+    dot: { width: 3, height: 3, borderRadius: 2, backgroundColor: theme.cardBorder },
+    dateText: { fontSize: 12, color: theme.textSecondary },
+    statusPill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
+    statusPillText: { fontSize: 10, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 },
+
+    // Empty State
+    emptyState: { padding: 40, alignItems: 'center', justifyContent: 'center', gap: 16, marginTop: 100 },
+    emptyText: { color: theme.textSecondary, fontWeight: '600', fontSize: 16 },
+
+    // Enhanced Modal
+    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'flex-start', alignItems: 'center', padding: 20, paddingTop: 80 },
+    modalContainer: { backgroundColor: theme.cardBg, borderRadius: 32, width: '100%', maxWidth: 450, overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.3, shadowRadius: 20, elevation: 10, borderWidth: 1, borderColor: theme.cardBorder },
+    modalHeader: { padding: 24, paddingBottom: 30 },
+    modalHeaderTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+    modalSubtitle: { fontSize: 13, fontWeight: '700', color: theme.textSecondary, textTransform: 'uppercase', letterSpacing: 1 },
+    modalCloseBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: theme.cardBg, alignItems: 'center', justifyContent: 'center' },
+
+    profileSection: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+    avatarPlaceholder: { width: 56, height: 56, borderRadius: 28, backgroundColor: theme.cardBg, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 3 },
+    profileInfo: { flex: 1 },
+    modalClientName: { fontSize: 22, fontWeight: '800', color: theme.textPrimary, marginBottom: 2 },
+    modalIdRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    modalIdValue: { fontSize: 12, fontWeight: '600', color: theme.textSecondary },
+
+    modalBody: { padding: 24, paddingTop: 0, marginTop: -15 },
+    amountShowcase: { backgroundColor: theme.cardBg, borderRadius: 24, padding: 20, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.1, shadowRadius: 10, elevation: 5, marginBottom: 24, borderWidth: 1, borderColor: theme.cardBorder },
+    amountLabel: { fontSize: 13, fontWeight: '600', color: theme.textSecondary, marginBottom: 6 },
+    amountValueMain: { fontSize: 32, fontWeight: '900', color: theme.textPrimary, marginBottom: 12 },
+    statusTag: { paddingHorizontal: 12, paddingVertical: 4, borderRadius: 10 },
+    statusTagText: { fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1 },
+
+    detailsGrid: { flexDirection: 'row', gap: 12, marginBottom: 20 },
+    detailsItem: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, padding: 10, backgroundColor: theme.background, borderRadius: 14, borderWidth: 1, borderColor: theme.cardBorder },
+    detailsItemContent: { flex: 1 },
+    detailsItemLabel: { fontSize: 9, fontWeight: '700', color: theme.textSecondary, textTransform: 'uppercase', marginBottom: 2 },
+    detailsItemValue: { fontSize: 12, fontWeight: '700', color: theme.textPrimary },
+
+    modalNoteBox: { padding: 16, backgroundColor: theme.primary + '08', borderRadius: 16, borderLeftWidth: 4, borderLeftColor: theme.primary, marginBottom: 20 },
+    noteBoxHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
+    noteBoxTitle: { fontSize: 11, fontWeight: '800', color: theme.textSecondary, textTransform: 'uppercase' },
+    noteBoxContent: { fontSize: 14, color: theme.textPrimary, fontStyle: 'italic', lineHeight: 20 },
+
+    modalFooter: { paddingTop: 4 },
+    actionGrid: { flexDirection: 'row', gap: 10 },
+    primaryActionBtn: { flex: 1, height: 54, borderRadius: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+    actionBtnLabel: { fontSize: 15, fontWeight: '800' },
+
+    enhancedActionBox: { gap: 12 },
+    rejectionLabel: { fontSize: 11, fontWeight: '800', color: theme.error, letterSpacing: 1 },
+    rejectionTextarea: { backgroundColor: theme.background, borderRadius: 18, padding: 14, fontSize: 14, color: theme.textPrimary, height: 60, borderWidth: 1, borderColor: theme.error + '20' },
+    rejectionGrid: { flexDirection: 'row', gap: 10 },
+    rejectionCancel: { flex: 1, height: 48, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.cardBorder + '20' },
+    rejectionCancelText: { color: theme.textPrimary, fontWeight: '700', fontSize: 14 },
+    rejectionConfirm: { flex: 2, height: 48, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.error },
+    rejectionConfirmText: { color: '#fff', fontWeight: '800', fontSize: 14 }
+});

@@ -1,11 +1,11 @@
+import config from '../config';
 import axios from 'axios';
 import { getAccessToken, getRefreshToken, saveAuthTokens, clearAuthTokens } from '../utils/secureStore';
 import { Platform } from 'react-native';
 
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.0.191:8080/api';
-
 const apiClient = axios.create({
-    baseURL: BASE_URL,
+    baseURL: config.API_BASE_URL,
+    timeout: 10000,
     headers: {
         'Content-Type': 'application/json',
     },
@@ -28,7 +28,7 @@ apiClient.interceptors.response.use(
     (response) => response,
     async (error) => {
         const originalRequest = error.config;
-        if (error.response?.status === 401 && !originalRequest._retry) {
+        if ((error.response?.status === 401 || error.response?.status === 403) && !originalRequest._retry) {
             originalRequest._retry = true;
             try {
                 await clearAuthTokens();
@@ -114,6 +114,10 @@ export const clientService = {
         const response = await apiClient.post('/client/deposit-request', formData, {
             headers: { 'Content-Type': 'multipart/form-data' }
         });
+        return response.data;
+    },
+    createDepositRequestJson: async (data) => {
+        const response = await apiClient.post('/client/deposit-request', data);
         return response.data;
     },
     getMyDepositRequests: async () => {

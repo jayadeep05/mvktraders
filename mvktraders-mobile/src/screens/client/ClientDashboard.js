@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, A
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
+import config from '../../config';
 import {
     ArrowUpRight,
     ArrowDownLeft,
@@ -75,7 +76,7 @@ export default function ClientDashboard({ navigation }) {
 
 
     // Helper for Image URL
-    const API_BASE = process.env.EXPO_PUBLIC_API_URL || 'http://13.48.212.110:8080/api';
+    const API_BASE = config.API_BASE_URL;
     const getImageUrl = (path) => {
         if (!path) return null;
         if (path.startsWith('http')) return path;
@@ -155,24 +156,36 @@ export default function ClientDashboard({ navigation }) {
             let historyList = [];
 
             if (depositsRes.status === 'fulfilled') {
-                const deposits = depositsRes.value.map(d => ({ ...d, type: 'DEPOSIT', label: 'Deposit Request' }));
+                // Only show PENDING or REJECTED deposits here, as APPROVED ones will show as Transactions
+                const deposits = depositsRes.value
+                    .filter(d => d.status !== 'APPROVED')
+                    .map(d => ({ ...d, type: 'DEPOSIT', label: 'Deposit Request' }));
                 historyList = [...historyList, ...deposits];
             }
             if (withdrawalsRes.status === 'fulfilled') {
-                const withdrawals = withdrawalsRes.value.map(w => ({ ...w, type: 'WITHDRAWAL', label: 'Withdrawal Request' }));
+                // Only show PENDING or REJECTED withdrawals here, as APPROVED ones will show as Transactions
+                const withdrawals = withdrawalsRes.value
+                    .filter(w => w.status !== 'APPROVED')
+                    .map(w => ({ ...w, type: 'WITHDRAWAL', label: 'Withdrawal Request' }));
                 historyList = [...historyList, ...withdrawals];
             }
             if (transactionsRes.status === 'fulfilled') {
-                const payouts = transactionsRes.value
-                    .filter(t => t.type === 'PAYOUT')
-                    .map(t => ({
+                // Include ALL transaction types (PAYOUT, DEPOSIT, WITHDRAWAL)
+                // These represent COMPLETED actions (Admin manual entries or approved requests)
+                const transactions = transactionsRes.value.map(t => {
+                    const desc = (t.description || '').toLowerCase();
+                    const isManual = !desc.includes('approved') && t.type !== 'PAYOUT';
+
+                    return {
                         ...t,
-                        type: 'PAYOUT',
-                        label: 'Profit Payout',
-                        status: 'COMPLETED',
-                        createdAt: t.date || t.createdAt || t.timestamp
-                    }));
-                historyList = [...historyList, ...payouts];
+                        label: t.type === 'PAYOUT' ? 'Profit Payout' :
+                            t.type === 'DEPOSIT' ? 'Funds Added' :
+                                t.type === 'WITHDRAWAL' ? 'Withdrawal' : 'Portfolio Action',
+                        status: isManual ? 'ADMIN' : (desc.includes('approved') ? 'APPROVED' : 'COMPLETED'),
+                        createdAt: t.createdAt || t.date || t.timestamp
+                    };
+                });
+                historyList = [...historyList, ...transactions];
             }
 
             // Sort by Date Descending
@@ -355,13 +368,13 @@ export default function ClientDashboard({ navigation }) {
                 <View style={styles.actionRow}>
                     <TouchableOpacity
                         style={[styles.actionButton, { backgroundColor: '#ef4444', borderColor: '#ef4444' }]}
-                        onPress={() => navigation.navigate('Withdrawal')}
+                        onPress={() => navigation.navigate('Withdrawal', { portfolioData: portfolio })}
                     >
                         <ArrowDownLeft size={18} color="#fff" />
                         <Text style={styles.actionText}>Withdraw</Text>
                     </TouchableOpacity>
 
-                    <TouchableOpacity onPress={() => navigation.navigate('Deposit')} style={{ flex: 1 }}>
+                    <TouchableOpacity onPress={() => navigation.navigate('Deposit', { portfolioData: portfolio })} style={{ flex: 1 }}>
                         <LinearGradient
                             colors={['#10b981', '#059669']}
                             start={{ x: 0, y: 0 }}
@@ -613,7 +626,7 @@ export default function ClientDashboard({ navigation }) {
                                     </View>
                                     <View style={{ flex: 1, paddingHorizontal: 12 }}>
                                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                                            <Text style={styles.transType}>{item.type === 'DEPOSIT' ? 'Funds Added' : item.type === 'PAYOUT' ? 'Profit Payout' : item.type}</Text>
+                                            <Text style={styles.transType}>{item.label || item.type}</Text>
                                             {item.type === 'PAYOUT' && (
                                                 <TouchableOpacity
                                                     onPress={() => { setSelectedPayout(item); setModalVisible(true); }}
@@ -633,15 +646,17 @@ export default function ClientDashboard({ navigation }) {
                                             {formatCurrency(item.amount)}
                                         </Text>
                                         <View style={[styles.statusBadge, {
-                                            borderColor: item.status === 'APPROVED' || item.status === 'COMPLETED' ? theme.success :
-                                                item.status === 'REJECTED' ? theme.error : theme.warning
+                                            borderColor: item.status === 'ADMIN' ? '#3b82f6' :
+                                                (item.status === 'APPROVED' || item.status === 'COMPLETED' ? theme.success :
+                                                    item.status === 'REJECTED' ? theme.error : theme.warning)
                                         }]}>
                                             <Text
                                                 numberOfLines={1}
                                                 adjustsFontSizeToFit
                                                 style={[styles.statusText, {
-                                                    color: item.status === 'APPROVED' || item.status === 'COMPLETED' ? theme.success :
-                                                        item.status === 'REJECTED' ? theme.error : theme.warning
+                                                    color: item.status === 'ADMIN' ? '#3b82f6' :
+                                                        (item.status === 'APPROVED' || item.status === 'COMPLETED' ? theme.success :
+                                                            item.status === 'REJECTED' ? theme.error : theme.warning)
                                                 }]}
                                             >
                                                 {item.status}
@@ -844,6 +859,7 @@ const getStyles = (theme) => StyleSheet.create({
     transIconBox: { width: 36, height: 36, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
     transType: { color: theme.textPrimary, fontSize: 14, fontWeight: '600', marginBottom: 2 },
     transDate: { color: theme.textSecondary, fontSize: 11, fontWeight: '500' },
+    transNote: { color: theme.textSecondary, fontSize: 10, marginTop: 2, fontStyle: 'italic', opacity: 0.8 },
     transAmount: { color: theme.textPrimary, fontWeight: '700', fontSize: 14, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
     statusBadge: { borderWidth: 1, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, marginTop: 4, alignSelf: 'flex-end' },
     statusText: { fontSize: 9, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },

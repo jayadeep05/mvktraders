@@ -65,13 +65,25 @@ export const AuthProvider = ({ children }) => {
         }
     };
 
+    const setSession = async (access_token, refresh_token) => {
+        try {
+            await saveAuthTokens(access_token, refresh_token);
+            const userData = parseUserFromToken(access_token);
+            setUser(userData);
+            return true;
+        } catch (error) {
+            console.error("Set session failed", error);
+            return false;
+        }
+    };
+
     const logout = async () => {
         await clearAuthTokens();
         setUser(null);
     };
 
     return (
-        <AuthContext.Provider value={{ user, isLoading, login, logout }}>
+        <AuthContext.Provider value={{ user, isLoading, login, logout, setSession }}>
             {children}
         </AuthContext.Provider>
     );

@@ -1,14 +1,8 @@
 spring:
   application:
     name: investment-analytics
-  datasource:
-    # url: jdbc:mysql://localhost:3306/investment_analysis
-    # username: root
-    # password: "#JAYA1708!!"
-    url: jdbc:mysql://localhost:3306/investment_analysis
-    username: app_user
-    password: "mSRINIVAS777!!"
-    driver-class-name: com.mysql.cj.jdbc.Driver
+  profiles:
+    active: local # Default to local
   jpa:
     hibernate:
       ddl-auto: update
@@ -17,7 +11,7 @@ spring:
         dialect: org.hibernate.dialect.MySQL8Dialect
         format_sql: false
     show-sql: false
-  
+
 logging:
   level:
     com.enterprise.investmentanalytics: INFO
@@ -31,5 +25,5 @@ server:
 
 jwt:
   secret: verysecretkeythatshouldbechangedinproductionandmustbelongenoughforhs512
-  expiration: 86400000 # 24 hours
-  refresh-expiration: 604800000 # 7 days
+  expiration: 86400000 
+  refresh-expiration: 604800000 

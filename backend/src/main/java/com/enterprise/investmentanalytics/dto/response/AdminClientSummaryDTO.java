@@ -34,5 +34,6 @@ public class AdminClientSummaryDTO {
     private String mediatorName;
     private UUID mediatorId;
     private String mediatorUserId;
+    private LocalDateTime createdOn;
 
 }

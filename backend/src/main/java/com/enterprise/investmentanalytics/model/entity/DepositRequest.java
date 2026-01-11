@@ -21,16 +21,17 @@ import java.util.UUID;
 public class DepositRequest {
 
     @Id
-    @GeneratedValue(generator = "UUID")
-    @GenericGenerator(name = "UUID", strategy = "org.hibernate.id.UUIDGenerator")
+    @GeneratedValue(strategy = GenerationType.UUID)
+    @Column(columnDefinition = "BINARY(16)")
     private UUID id;
 
     @ManyToOne(fetch = FetchType.EAGER)
-    @JoinColumn(name = "user_id", referencedColumnName = "user_id", insertable = false, updatable = false)
+    @JoinColumn(name = "user_id", nullable = false, columnDefinition = "BINARY(16)")
     private User user;
 
-    @Column(name = "user_id", length = 10, nullable = false)
-    private String userId;
+    // Removed redundant String userId field as it conflicts with the @JoinColumn
+    // and causes type mismanagement. We should rely on the User relationship
+    // relation.
 
     @Column(nullable = false, precision = 19, scale = 4)
     private BigDecimal amount;

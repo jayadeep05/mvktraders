@@ -26,10 +26,11 @@ public class Transaction {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
+    @Column(columnDefinition = "BINARY(16)")
     private UUID id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_id", referencedColumnName = "user_id", nullable = false)
+    @JoinColumn(name = "user_id", nullable = false, columnDefinition = "BINARY(16)")
     private User user;
 
     @Enumerated(EnumType.STRING)

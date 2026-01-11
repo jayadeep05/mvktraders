@@ -9,6 +9,7 @@ import com.enterprise.investmentanalytics.service.PortfolioService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.lang.NonNull;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -82,7 +83,8 @@ public class MediatorController {
                 }
 
                 java.math.BigDecimal amount = new java.math.BigDecimal(request.get("amount").toString());
-                com.enterprise.investmentanalytics.dto.response.WithdrawalRequestDTO dto = withdrawalService.createWithdrawalRequest(client.getId(), amount);
+                com.enterprise.investmentanalytics.dto.response.WithdrawalRequestDTO dto = withdrawalService
+                                .createWithdrawalRequest(client.getId(), amount);
                 return ResponseEntity.ok(Map.of(
                                 "success", true,
                                 "message", "Withdrawal request submitted successfully",
@@ -218,7 +220,7 @@ public class MediatorController {
 
         @PostMapping("/impersonate/{clientId}")
         public ResponseEntity<?> impersonateClient(
-                        @PathVariable UUID clientId,
+                        @PathVariable @NonNull UUID clientId,
                         @AuthenticationPrincipal User mediator) {
 
                 User client = userRepository.findById(clientId)

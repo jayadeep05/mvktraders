@@ -28,6 +28,7 @@ public class User implements UserDetails {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
+    @Column(columnDefinition = "BINARY(16)")
     private UUID id; // Internal primary key - never exposed
 
     @Column(name = "n_id", nullable = true, unique = true, insertable = true, updatable = true)
@@ -67,7 +68,7 @@ public class User implements UserDetails {
     private LocalDateTime createdAt;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "mediator_id")
+    @JoinColumn(name = "mediator_id", columnDefinition = "BINARY(16)")
     private User mediator;
 
     @UpdateTimestamp

@@ -4,8 +4,8 @@ import com.enterprise.investmentanalytics.dto.request.AuthenticationRequest;
 import com.enterprise.investmentanalytics.dto.request.ChangePasswordRequest;
 import com.enterprise.investmentanalytics.dto.request.RegisterRequest;
 import com.enterprise.investmentanalytics.dto.response.AuthenticationResponse;
+import com.enterprise.investmentanalytics.dto.response.UserDTO;
 import com.enterprise.investmentanalytics.model.entity.User;
-import com.enterprise.investmentanalytics.model.enums.Role;
 import com.enterprise.investmentanalytics.model.enums.UserStatus;
 import com.enterprise.investmentanalytics.repository.UserRepository;
 import com.enterprise.investmentanalytics.security.JwtService;
@@ -13,6 +13,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -136,6 +137,11 @@ public class AuthenticationService {
                         throw new RuntimeException("Access Denied: Your account is pending approval.");
                 }
 
+                if (user.getStatus() == UserStatus.INACTIVE) {
+                        throw new RuntimeException(
+                                        "You are no longer an active user. Please contact the administrator.");
+                }
+
                 // Authenticate with Spring Security
                 authenticationManager.authenticate(
                                 new UsernamePasswordAuthenticationToken(
@@ -173,9 +179,15 @@ public class AuthenticationService {
                 auditService.log("CHANGE_PASSWORD", "USER", connectedUser.getId().toString());
         }
 
-        public AuthenticationResponse impersonate(java.util.UUID userId) {
+        public AuthenticationResponse impersonate(@NonNull java.util.UUID userId) {
                 User user = repository.findById(userId)
                                 .orElseThrow(() -> new RuntimeException("User not found"));
+
+                // Check if user is active
+                if (user.getStatus() != UserStatus.ACTIVE) {
+                        throw new RuntimeException("Cannot impersonate inactive user");
+                }
+
                 var jwtToken = jwtService.generateToken(user);
                 var refreshToken = jwtService.generateRefreshToken(user);
 
@@ -184,6 +196,19 @@ public class AuthenticationService {
                 return AuthenticationResponse.builder()
                                 .accessToken(jwtToken)
                                 .refreshToken(refreshToken)
+                                .user(mapToUserDTO(user))
+                                .build();
+        }
+
+        private UserDTO mapToUserDTO(User user) {
+                return UserDTO.builder()
+                                .id(user.getId())
+                                .userId(user.getUserId())
+                                .name(user.getName())
+                                .email(user.getEmail())
+                                .mobile(user.getMobile())
+                                .role(user.getRole())
+                                .status(user.getStatus())
                                 .build();
         }
 }

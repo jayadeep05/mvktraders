@@ -43,6 +43,8 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     List<User> findByIsDeletedFalse();
 
-    @org.springframework.data.jpa.repository.Query("SELECT u FROM User u LEFT JOIN FETCH u.mediator WHERE u.isDeleted = false")
+    @org.springframework.data.jpa.repository.Query("SELECT u FROM User u LEFT JOIN FETCH u.mediator")
     List<User> findAllWithMediator();
+
+    List<User> findByRoleAndIsDeletedTrue(Role role);
 }

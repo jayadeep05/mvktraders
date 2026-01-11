@@ -23,10 +23,11 @@ public class WithdrawalRequest {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
+    @Column(columnDefinition = "BINARY(16)")
     private UUID id;
 
     @ManyToOne(fetch = FetchType.EAGER)
-    @JoinColumn(name = "user_id", nullable = false)
+    @JoinColumn(name = "user_id", nullable = false, columnDefinition = "BINARY(16)")
     private User user;
 
     @Column(nullable = false, precision = 19, scale = 4)

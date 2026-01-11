@@ -13,6 +13,7 @@ import com.enterprise.investmentanalytics.service.WithdrawalService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.lang.NonNull;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
@@ -82,17 +83,54 @@ public class AdminController {
     @PostMapping("/users/{id}/reject")
     public ResponseEntity<?> rejectUser(@PathVariable UUID id, @AuthenticationPrincipal User admin) {
         User user = userRepository.findById(id).orElseThrow(() -> new RuntimeException("User not found"));
-        // We can delete or block. Delete is cleaner for rejected requests.
-        userRepository.delete(user);
+        user.setStatus(com.enterprise.investmentanalytics.model.enums.UserStatus.REJECTED);
+        userRepository.save(user);
 
         auditService.log("REJECT_USER", "ADMIN", "Admin " + admin.getEmail() + " rejected user " + user.getId());
-        return ResponseEntity.ok(java.util.Map.of("message", "User request rejected and removed"));
+        return ResponseEntity.ok(java.util.Map.of("message", "User request rejected"));
     }
 
     @DeleteMapping("/users/{id}")
-    public ResponseEntity<Void> deleteUser(@PathVariable UUID id) {
-        userRepository.deleteById(id);
-        return ResponseEntity.noContent().build();
+    public ResponseEntity<?> deleteUser(@PathVariable @NonNull UUID id, @AuthenticationPrincipal User admin) {
+        if (admin == null) {
+            return ResponseEntity.status(401).body(java.util.Map.of("message", "Unauthorized"));
+        }
+        try {
+            deleteRequestService.deactivateUser(id, admin.getEmail());
+            return ResponseEntity.ok(java.util.Map.of("message", "User deactivated successfully"));
+        } catch (Exception e) {
+            System.err.println("Deactivation failed for user " + id + ": " + e.getMessage());
+            e.printStackTrace();
+            return ResponseEntity.internalServerError().body(java.util.Map.of("message", e.getMessage()));
+        }
+    }
+
+    @PostMapping("/users/{id}/reactivate")
+    public ResponseEntity<?> reactivateUser(@PathVariable @NonNull UUID id, @AuthenticationPrincipal User admin) {
+        User user = userRepository.findById(id).orElseThrow(() -> new RuntimeException("User not found"));
+        user.setStatus(com.enterprise.investmentanalytics.model.enums.UserStatus.ACTIVE);
+        user.setDeleted(false);
+        user.setDeletedAt(null);
+        user.setDeletedBy(null);
+        userRepository.save(user);
+
+        auditService.log("REACTIVATE_USER", "ADMIN", "Admin " + admin.getEmail() + " reactivated user " + user.getId());
+        return ResponseEntity.ok(java.util.Map.of("message", "User reactivated successfully"));
+    }
+
+    @DeleteMapping("/users/{id}/permanent")
+    public ResponseEntity<?> deleteUserPermanently(@PathVariable UUID id, @AuthenticationPrincipal User admin) {
+        User user = userRepository.findById(id).orElseThrow(() -> new RuntimeException("User not found"));
+        if (!user.isDeleted()
+                && user.getStatus() != com.enterprise.investmentanalytics.model.enums.UserStatus.INACTIVE) {
+            throw new RuntimeException("Only inactive users can be deleted permanently");
+        }
+
+        deleteRequestService.performPermanentDelete(id);
+
+        auditService.log("PERMANENT_DELETE_USER", "ADMIN",
+                "Admin " + admin.getEmail() + " permanently deleted user " + id);
+        return ResponseEntity.ok(java.util.Map.of("message", "User deleted permanently from database"));
     }
 
     @GetMapping("/users")
@@ -105,6 +143,17 @@ public class AdminController {
     @GetMapping("/clients")
     public ResponseEntity<List<com.enterprise.investmentanalytics.dto.response.AdminClientSummaryDTO>> getClientsSummary() {
         return ResponseEntity.ok(portfolioService.getAdminClientSummaries());
+    }
+
+    @GetMapping("/clients/inactive")
+    public ResponseEntity<List<com.enterprise.investmentanalytics.dto.response.AdminClientSummaryDTO>> getInactiveClientsSummary() {
+        return ResponseEntity.ok(portfolioService.getInactiveClientSummaries());
+    }
+
+    @GetMapping("/mediator/{id}/clients")
+    public ResponseEntity<List<com.enterprise.investmentanalytics.dto.response.AdminClientSummaryDTO>> getMediatorClients(
+            @PathVariable UUID id) {
+        return ResponseEntity.ok(portfolioService.getClientSummariesByMediator(id));
     }
 
     @GetMapping("/client/{id}/portfolio")
@@ -505,7 +554,7 @@ public class AdminController {
 
     @PostMapping("/deposit-requests/{id}/approve")
     public ResponseEntity<Map<String, Object>> approveDepositRequest(
-            @PathVariable UUID id,
+            @PathVariable @NonNull UUID id,
             @RequestBody Map<String, String> body) {
         try {
             String note = body.getOrDefault("note", "");

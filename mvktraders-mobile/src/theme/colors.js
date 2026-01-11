@@ -54,7 +54,7 @@ export const darkTheme = {
 
     // Backgrounds
     background: '#020617', // Slate-950: Deep, rich dark background.
-    cardBg: 'rgba(30, 41, 59, 0.7)', // Slate-800 translucent
+    cardBg: '#1E293B', // Slate-800: Solid background for cards in dark mode.
 
     // Shadows & Borders
     cardBorder: 'rgba(255, 255, 255, 0.05)',

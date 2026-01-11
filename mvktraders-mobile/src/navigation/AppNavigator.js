@@ -16,6 +16,8 @@ import AdminDeposits from '../screens/admin/AdminDeposits';
 import AdminClients from '../screens/admin/AdminClients';
 import AdminClientDetails from '../screens/admin/AdminClientDetails';
 import AdminCreateUser from '../screens/admin/AdminCreateUser';
+import AdminDeleteRequests from '../screens/admin/AdminDeleteRequests';
+import AdminMediatorDetails from '../screens/admin/AdminMediatorDetails';
 
 // Client
 import ClientDashboard from '../screens/client/ClientDashboard';
@@ -72,15 +74,17 @@ export default function AppNavigator() {
                         <Stack.Screen name="AdminDeposits" component={AdminDeposits} options={{ animation: 'slide_from_right' }} />
                         <Stack.Screen name="AdminClients" component={AdminClients} options={{ animation: 'slide_from_right' }} />
                         <Stack.Screen name="AdminClientDetails" component={AdminClientDetails} options={{ animation: 'slide_from_right' }} />
-                        <Stack.Screen name="AdminCreateUser" component={AdminCreateUser} options={{ animation: 'slide_from_bottom' }} />
-                        <Stack.Screen name="Profile" component={ProfileScreen} options={{ animation: 'slide_from_bottom' }} />
+                        <Stack.Screen name="AdminCreateUser" component={AdminCreateUser} options={{ animation: 'slide_from_right' }} />
+                        <Stack.Screen name="AdminDeleteRequests" component={AdminDeleteRequests} options={{ animation: 'slide_from_right' }} />
+                        <Stack.Screen name="AdminMediatorDetails" component={AdminMediatorDetails} options={{ animation: 'slide_from_right' }} />
+                        <Stack.Screen name="Profile" component={ProfileScreen} options={{ animation: 'slide_from_right' }} />
                     </>
                 ) : (
                     // Client Stack
                     <>
                         <Stack.Screen name="ClientDashboard" component={ClientDashboard} />
-                        <Stack.Screen name="Deposit" component={DepositScreen} options={{ animation: 'slide_from_bottom' }} />
-                        <Stack.Screen name="Withdrawal" component={WithdrawalScreen} options={{ animation: 'slide_from_bottom' }} />
+                        <Stack.Screen name="Deposit" component={DepositScreen} options={{ animation: 'slide_from_right' }} />
+                        <Stack.Screen name="Withdrawal" component={WithdrawalScreen} options={{ animation: 'slide_from_right' }} />
                         <Stack.Screen name="Profile" component={ProfileScreen} options={{ animation: 'slide_from_right' }} />
                     </>
                 )}

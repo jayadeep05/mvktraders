@@ -10,7 +10,7 @@ import java.util.UUID;
 
 @Repository
 public interface DepositRequestRepository extends JpaRepository<DepositRequest, UUID> {
-    List<DepositRequest> findByUserIdOrderByCreatedAtDesc(String userId);
+    List<DepositRequest> findByUserOrderByCreatedAtDesc(com.enterprise.investmentanalytics.model.entity.User user);
 
     List<DepositRequest> findByStatusOrderByCreatedAtDesc(RequestStatus status);
 

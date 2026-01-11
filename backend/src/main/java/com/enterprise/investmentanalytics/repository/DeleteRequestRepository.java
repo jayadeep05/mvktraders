@@ -13,4 +13,6 @@ public interface DeleteRequestRepository extends JpaRepository<DeleteRequest, UU
     List<DeleteRequest> findByStatus(DeleteRequestStatus status);
 
     List<DeleteRequest> findByRequestedById(UUID userId);
+
+    List<DeleteRequest> findByEntityId(UUID entityId);
 }

@@ -42,7 +42,6 @@ public class DepositService {
 
                 DepositRequest request = DepositRequest.builder()
                                 .user(user)
-                                .userId(user.getUserId())
                                 .amount(amount)
                                 .proofImagePath(proofImagePath)
                                 .userNote(userNote)
@@ -71,7 +70,7 @@ public class DepositService {
         public List<DepositRequestDTO> getUserDepositRequests(UUID userId) {
                 User user = userRepository.findById(userId)
                                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
-                return depositRequestRepository.findByUserIdOrderByCreatedAtDesc(user.getUserId()).stream()
+                return depositRequestRepository.findByUserOrderByCreatedAtDesc(user).stream()
                                 .map(this::toDTO)
                                 .collect(Collectors.toList());
         }

@@ -23,10 +23,11 @@ public class Portfolio {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
+    @Column(columnDefinition = "BINARY(16)")
     private UUID id;
 
     @OneToOne(fetch = FetchType.EAGER)
-    @JoinColumn(name = "user_id", referencedColumnName = "user_id", nullable = false, unique = true)
+    @JoinColumn(name = "user_id", nullable = false, unique = true, columnDefinition = "BINARY(16)")
     private User user;
 
     @Column(name = "total_value", precision = 19, scale = 4)
@@ -34,8 +35,6 @@ public class Portfolio {
 
     @Column(name = "total_invested", precision = 19, scale = 4)
     private BigDecimal totalInvested;
-
-
 
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)

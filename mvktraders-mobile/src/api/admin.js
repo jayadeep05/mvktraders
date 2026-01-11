@@ -6,6 +6,14 @@ export const adminService = {
         const response = await apiClient.get('/admin/clients');
         return response.data;
     },
+    getInactiveClientsSummary: async () => {
+        const response = await apiClient.get('/admin/clients/inactive');
+        return response.data;
+    },
+    getMediatorClients: async (id) => {
+        const response = await apiClient.get(`/admin/mediator/${id}/clients`);
+        return response.data;
+    },
     getAllUsers: async () => {
         const response = await apiClient.get('/admin/users');
         return response.data;
@@ -32,6 +40,14 @@ export const adminService = {
     },
     deleteUser: async (id) => {
         const response = await apiClient.delete(`/admin/users/${id}`);
+        return response.data;
+    },
+    reactivateUser: async (id) => {
+        const response = await apiClient.post(`/admin/users/${id}/reactivate`);
+        return response.data;
+    },
+    deleteUserPermanently: async (id) => {
+        const response = await apiClient.delete(`/admin/users/${id}/permanent`);
         return response.data;
     },
     createClient: async (clientData) => {
@@ -94,6 +110,20 @@ export const adminService = {
                 'Content-Type': 'multipart/form-data',
             },
         });
+        return response.data;
+    },
+
+    // Delete Request Management
+    getAllDeleteRequests: async () => {
+        const response = await apiClient.get('/admin/delete-requests');
+        return response.data;
+    },
+    approveDeleteRequest: async (id, password) => {
+        const response = await apiClient.post(`/admin/delete-requests/${id}/approve`, { password });
+        return response.data;
+    },
+    rejectDeleteRequest: async (id) => {
+        const response = await apiClient.post(`/admin/delete-requests/${id}/reject`);
         return response.data;
     }
 };

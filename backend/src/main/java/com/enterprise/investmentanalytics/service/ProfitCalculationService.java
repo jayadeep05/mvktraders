@@ -1,15 +1,17 @@
 package com.enterprise.investmentanalytics.service;
 
-import com.enterprise.investmentanalytics.dto.request.ProfitConfigRequest;
-import com.enterprise.investmentanalytics.dto.response.ProfitHistoryResponse;
 import com.enterprise.investmentanalytics.model.entity.MonthlyProfitHistory;
 import com.enterprise.investmentanalytics.model.entity.Portfolio;
 import com.enterprise.investmentanalytics.model.entity.Transaction;
-import com.enterprise.investmentanalytics.model.enums.ProfitAccrualStatus;
+import com.enterprise.investmentanalytics.model.entity.User;
+import com.enterprise.investmentanalytics.model.enums.ProfitMode;
+import com.enterprise.investmentanalytics.model.enums.Role;
 import com.enterprise.investmentanalytics.model.enums.TransactionType;
+import com.enterprise.investmentanalytics.model.enums.UserStatus;
 import com.enterprise.investmentanalytics.repository.MonthlyProfitHistoryRepository;
 import com.enterprise.investmentanalytics.repository.PortfolioRepository;
 import com.enterprise.investmentanalytics.repository.TransactionRepository;
+import com.enterprise.investmentanalytics.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -17,158 +19,183 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.List;
-import java.util.UUID;
-import java.util.stream.Collectors;
+import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class ProfitCalculationService {
 
+    private final UserRepository userRepository;
     private final PortfolioRepository portfolioRepository;
+    private final MonthlyProfitHistoryRepository profitHistoryRepository;
     private final TransactionRepository transactionRepository;
-    private final MonthlyProfitHistoryRepository monthlyProfitHistoryRepository;
+    private final GlobalConfigService configService;
 
     @Transactional
-    public void calculateProfitForUser(UUID userId, int month, int year, boolean isManual) {
-        // Idempotency check
-        if (monthlyProfitHistoryRepository.existsByUserIdAndMonthAndYear(userId, month, year)) {
-            log.info("Profit already calculated for user {} for {}/{}", userId, month, year);
+    public void calculateMonthlyProfit(int month, int year) {
+        log.info("Starting profit calculation for {}/{}", month, year);
+
+        // 1. Fetch Configuration
+        BigDecimal fixedRate = configService.getBigDecimal(GlobalConfigService.FIXED_MONTHLY_RATE_PERCENT)
+                .divide(BigDecimal.valueOf(100), 4, RoundingMode.HALF_UP);
+        BigDecimal compoundingRate = configService.getBigDecimal(GlobalConfigService.COMPOUNDING_MONTHLY_RATE_PERCENT)
+                .divide(BigDecimal.valueOf(100), 4, RoundingMode.HALF_UP);
+        boolean useProration = configService.getBoolean(GlobalConfigService.USE_FIRST_MONTH_PRORATION);
+        String prorationMethod = configService.getValue(GlobalConfigService.FIRST_MONTH_PRORATION_METHOD);
+        int cutoffDay = configService.getInt(GlobalConfigService.MONTHLY_CUTOFF_DAY);
+        boolean useAdminApprovalDate = configService
+                .getBoolean(GlobalConfigService.USE_ADMIN_APPROVAL_DATE_AS_ENTRY_DATE);
+
+        YearMonth cycleMonth = YearMonth.of(year, month);
+        int daysInMonth = cycleMonth.lengthOfMonth();
+
+        // 2. Fetch Active Clients
+        List<User> activeClients = userRepository.findAll().stream()
+                .filter(u -> u.getRole() == Role.CLIENT && u.getStatus() == UserStatus.ACTIVE && !u.isDeleted())
+                .toList();
+
+        for (User user : activeClients) {
+            try {
+                processClientProfit(user, cycleMonth, fixedRate, compoundingRate, useProration, prorationMethod,
+                        cutoffDay, useAdminApprovalDate, daysInMonth);
+            } catch (Exception e) {
+                log.error("Failed to calculate profit for user {}: {}", user.getEmail(), e.getMessage(), e);
+            }
+        }
+
+        log.info("Completed profit calculation for {}/{}", month, year);
+    }
+
+    private void processClientProfit(User user, YearMonth cycleMonth, BigDecimal fixedRate, BigDecimal compoundingRate,
+            boolean useProration, String prorationMethod, int cutoffDay, boolean useAdminApprovalDate,
+            int daysInMonth) {
+        // Idempotency Check
+        if (profitHistoryRepository
+                .findByUserIdAndMonthAndYear(user.getId(), cycleMonth.getMonthValue(), cycleMonth.getYear())
+                .isPresent()) {
+            log.info("Profit already calculated for user {} for {}/{}", user.getEmail(), cycleMonth.getMonthValue(),
+                    cycleMonth.getYear());
             return;
         }
 
-        Portfolio portfolio = portfolioRepository.findByUserId(userId)
-                .orElseThrow(() -> new RuntimeException("Portfolio not found for user: " + userId));
+        Portfolio portfolio = portfolioRepository.findByUserId(user.getId()).orElse(null);
+        if (portfolio == null || portfolio.getTotalInvested().compareTo(BigDecimal.ZERO) <= 0) {
+            return; // Nothing to calculate
+        }
 
-        // Status check
-        if (portfolio.getProfitAccrualStatus() != ProfitAccrualStatus.ACTIVE) {
-            log.info("Profit accrual is paused or not set for user {}", userId);
+        // Determine Entry Date
+        LocalDate entryDate = (useAdminApprovalDate && user.getApprovedAt() != null)
+                ? user.getApprovedAt().toLocalDate()
+                : user.getCreatedAt().toLocalDate();
+
+        // Check Eligibility (Is this the first month?)
+        boolean isFirstMonth = (entryDate.getYear() == cycleMonth.getYear()
+                && entryDate.getMonth() == cycleMonth.getMonth());
+
+        // If entry date is in FUTURE of cycle month (shouldn't happen if batch runs
+        // correctly, but for safety)
+        if (entryDate.isAfter(cycleMonth.atEndOfMonth())) {
             return;
         }
 
-        BigDecimal percentage = portfolio.getProfitPercentage();
-        if (percentage == null || percentage.compareTo(BigDecimal.ZERO) <= 0) {
-            log.info("Invalid or zero profit percentage for user {}", userId);
-            return;
+        BigDecimal eligibleCapital = portfolio.getTotalInvested();
+        BigDecimal applicableRate = (portfolio.getProfitMode() == ProfitMode.COMPOUNDING) ? compoundingRate : fixedRate;
+        BigDecimal fraction = BigDecimal.ONE;
+        boolean isProrated = false;
+
+        if (isFirstMonth) {
+            if (useProration) {
+                isProrated = true;
+                int activeDays = daysInMonth - entryDate.getDayOfMonth() + 1;
+                if (activeDays < 0)
+                    activeDays = 0; // Should not happen
+
+                if ("SLAB_BASED".equalsIgnoreCase(prorationMethod)) {
+                    // Example Slab Logic (1-10 -> 100%, 11-20 -> 66%, 21+ -> 33%)
+                    // Implementation as per spec example
+                    int day = entryDate.getDayOfMonth();
+                    if (day <= 10)
+                        fraction = BigDecimal.ONE;
+                    else if (day <= 20)
+                        fraction = new BigDecimal("0.66");
+                    else
+                        fraction = new BigDecimal("0.33");
+                } else {
+                    // DAY_BASED
+                    fraction = BigDecimal.valueOf(activeDays).divide(BigDecimal.valueOf(daysInMonth), 4,
+                            RoundingMode.HALF_UP);
+                }
+            } else {
+                // Cutoff Logic
+                if (entryDate.getDayOfMonth() > cutoffDay) {
+                    log.info("User {} joined after cutoff {} in first month, skipping profit.", user.getEmail(),
+                            cutoffDay);
+                    return; // No profit this month
+                }
+            }
         }
 
-        // Calculation
-        BigDecimal openingBalance = portfolio.getTotalValue();
-        if (openingBalance == null)
-            openingBalance = BigDecimal.ZERO;
+        BigDecimal profitAmount = eligibleCapital.multiply(applicableRate).multiply(fraction).setScale(2,
+                RoundingMode.HALF_UP);
+        BigDecimal openingBalance = portfolio.getTotalInvested()
+                .add(Optional.ofNullable(portfolio.getAvailableProfit()).orElse(BigDecimal.ZERO));
 
-        BigDecimal profitAmount = openingBalance.multiply(percentage)
-                .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+        // Apply Profit logic
+        // "First-month profit is never compounded... Compounding starts only from the
+        // first full month."
+        boolean shouldCompound = (portfolio.getProfitMode() == ProfitMode.COMPOUNDING) && !isFirstMonth;
 
-        BigDecimal closingBalance = openingBalance.add(profitAmount);
+        if (shouldCompound) {
+            portfolio.setTotalInvested(portfolio.getTotalInvested().add(profitAmount));
+        } else {
+            BigDecimal currentAvailable = Optional.ofNullable(portfolio.getAvailableProfit()).orElse(BigDecimal.ZERO);
+            portfolio.setAvailableProfit(currentAvailable.add(profitAmount));
+        }
 
-        // 1. Create History Record (Immutable Log)
-        MonthlyProfitHistory history = MonthlyProfitHistory.builder()
-                .user(portfolio.getUser())
-                .month(month)
-                .year(year)
-                .openingBalance(openingBalance)
-                .profitPercentage(percentage)
-                .profitAmount(profitAmount)
-                .closingBalance(closingBalance)
-                .isManual(isManual)
-                .build();
-        monthlyProfitHistoryRepository.save(history);
+        // Update Total Value (Invested + Available)
+        // Wait, Total Value = Invested + Available?
+        // Let's check Portfolio.java definition. totalValue field exists.
+        // Usually Total Value = Invested + Available Profit.
+        BigDecimal newInvested = portfolio.getTotalInvested();
+        BigDecimal newAvailable = Optional.ofNullable(portfolio.getAvailableProfit()).orElse(BigDecimal.ZERO);
+        portfolio.setTotalValue(newInvested.add(newAvailable));
+        portfolio.setTotalProfitEarned(
+                Optional.ofNullable(portfolio.getTotalProfitEarned()).orElse(BigDecimal.ZERO).add(profitAmount));
 
-        // 2. Update Portfolio (Result needs to be the base for next month)
-        portfolio.setTotalValue(closingBalance);
         portfolioRepository.save(portfolio);
 
-        // 3. Create Transaction (For generic ledger transparency)
-        Transaction transaction = Transaction.builder()
-                .user(portfolio.getUser())
+        // Record History
+        MonthlyProfitHistory history = MonthlyProfitHistory.builder()
+                .user(user)
+                .month(cycleMonth.getMonthValue())
+                .year(cycleMonth.getYear())
+                .openingBalance(openingBalance) // Not exact Definition of opening balance (Value vs invested), using
+                                                // Value here.
+                .profitPercentage(applicableRate.multiply(BigDecimal.valueOf(100))) // Storing as percentage e.g. 4.0
+                .profitAmount(profitAmount)
+                .closingBalance(portfolio.getTotalValue())
+                .isManual(false)
+                .eligibleCapital(eligibleCapital) // NEW FIELD
+                .profitMode(portfolio.getProfitMode().name()) // NEW FIELD
+                .isProrated(isProrated) // NEW FIELD
+                .build();
+
+        profitHistoryRepository.save(history);
+
+        // Record Transaction
+        Transaction txn = Transaction.builder()
+                .user(user)
                 .type(TransactionType.PROFIT)
                 .amount(profitAmount)
-                .description(String.format("Monthly Profit %d/%d (%.2f%%)", month, year, percentage))
+                .description(String.format("Profit for %s (Mode: %s%s)", cycleMonth, portfolio.getProfitMode(),
+                        isProrated ? ", Prorated" : ""))
                 .build();
-        transactionRepository.save(transaction);
+        transactionRepository.save(txn);
 
-        log.info("Profit accrued for user {}: Amount={}, NewBalance={}", userId, profitAmount, closingBalance);
-    }
-
-    @Transactional
-    public void calculateAllProfits(int month, int year, boolean isManual) {
-        portfolioRepository.findAll().forEach(portfolio -> {
-            try {
-                // We call the transactional method from self-invocation if we want isolation
-                // per user?
-                // Spring generic limitation: internal call bypasses proxy.
-                // So we should just duplicate logic or rely on the fact this method is
-                // Transactional.
-                // Ideally, we want one transaction per user if we want partial success.
-                // But typically for batch, we might want all or nothing OR handle exceptions.
-                // Since this is called from Controller, I will rely on the Controller to
-                // iterate or handle here.
-                // To safely handle individual failures, we should move the single user logic to
-                // a public method called from outside,
-                // or use a self-injected proxy.
-                // For simplicity, I will call the logic directly but wrap in try-catch to allow
-                // partial completion.
-                // Note: @Transactional on this method means partial failure rolls back
-                // everything if not caught.
-                // BETTER STRATEGY: Do not verify @Transactional here. Let the controller call
-                // calculateProfitForUser in a loop.
-                // HOWEVER, to support a single "Job" call, I'll iterate here.
-
-                // Since I cannot easily self-inject in this snippet, I will implement a loop
-                // helper in the controller
-                // or just leave this as a convenience that might fail fast.
-                // Requirement: "recover safely from failures or partial runs".
-                // So I will REMOVE Transactional from this batch method and call the
-                // transactional single-user method.
-                // But I can't call 'this.calculateProfitForUser' transactionally.
-
-                // I will add a method that simply iterates and the Controller will call this
-                // service.
-                // Actually, I'll make this method non-transactional and call a transactional
-                // bean if possible,
-                // but simpler is to let the controller loop.
-                // I'll keep this simple:
-
-                calculateProfitForUser(portfolio.getUser().getId(), month, year, isManual);
-            } catch (Exception e) {
-                log.error("Failed to calculate profit for user " + portfolio.getUser().getId(), e);
-            }
-        });
-    }
-
-    @Transactional
-    public void updateProfitConfig(UUID userId, ProfitConfigRequest request) {
-        Portfolio portfolio = portfolioRepository.findByUserId(userId)
-                .orElseThrow(() -> new RuntimeException("Portfolio not found"));
-
-        if (request.getProfitPercentage() != null) {
-            portfolio.setProfitPercentage(request.getProfitPercentage());
-        }
-        if (request.getStatus() != null) {
-            portfolio.setProfitAccrualStatus(request.getStatus());
-        }
-        portfolioRepository.save(portfolio);
-        log.info("Updated profit config for user {}: {}/{}", userId, request.getProfitPercentage(),
-                request.getStatus());
-    }
-
-    public List<ProfitHistoryResponse> getHistory(UUID userId) {
-        return monthlyProfitHistoryRepository.findByUserIdOrderByYearDescMonthDesc(userId)
-                .stream()
-                .map(h -> ProfitHistoryResponse.builder()
-                        .id(h.getId())
-                        .userId(h.getUser().getId())
-                        .month(h.getMonth())
-                        .year(h.getYear())
-                        .openingBalance(h.getOpeningBalance())
-                        .profitPercentage(h.getProfitPercentage())
-                        .profitAmount(h.getProfitAmount())
-                        .closingBalance(h.getClosingBalance())
-                        .isManual(h.isManual())
-                        .calculatedAt(h.getCalculatedAt())
-                        .build())
-                .collect(Collectors.toList());
+        log.info("Calculated profit for user {}: {}", user.getEmail(), profitAmount);
     }
 }

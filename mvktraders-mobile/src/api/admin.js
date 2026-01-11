@@ -125,5 +125,23 @@ export const adminService = {
     rejectDeleteRequest: async (id) => {
         const response = await apiClient.post(`/admin/delete-requests/${id}/reject`);
         return response.data;
+    },
+
+    // Profit Management
+    getProfitConfigs: async () => {
+        const response = await apiClient.get('/admin/profit/config');
+        return response.data;
+    },
+    updateProfitConfigs: async (configs) => {
+        const response = await apiClient.put('/admin/profit/config', configs);
+        return response.data;
+    },
+    calculateProfit: async (month, year) => {
+        const response = await apiClient.post(`/admin/profit/calculate?month=${month}&year=${year}`);
+        return response.data;
+    },
+    updateClientProfitConfig: async (clientId, config) => {
+        const response = await apiClient.put(`/admin/client/${clientId}/profit-config`, config);
+        return response.data;
     }
 };

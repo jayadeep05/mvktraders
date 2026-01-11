@@ -47,6 +47,10 @@ public class PortfolioService {
                                 .availableProfit(portfolio.getAvailableProfit())
                                 .totalProfitEarned(portfolio.getTotalProfitEarned())
                                 .updatedAt(portfolio.getUpdatedAt())
+                                .profitMode(portfolio.getProfitMode())
+                                .profitModeEffectiveDate(portfolio.getProfitModeEffectiveDate())
+                                .isProrationEnabled(portfolio.getIsProrationEnabled())
+                                .allowEarlyExit(portfolio.getAllowEarlyExit())
                                 .build();
         }
 
@@ -194,82 +198,41 @@ public class PortfolioService {
 
         public List<com.enterprise.investmentanalytics.dto.response.AdminClientSummaryDTO> seedSampleClients(
                         org.springframework.security.crypto.password.PasswordEncoder passwordEncoder) {
-                /*
-                 * List<com.enterprise.investmentanalytics.dto.response.AdminClientSummaryDTO>
-                 * createdClients = new java.util.ArrayList<>();
-                 * 
-                 * // Sample client data with realistic values
-                 * String[][] clientData = {
-                 * { "Sarah Johnson", "sarah.johnson@demo.com", "150000", "187500" },
-                 * { "Michael Chen", "michael.chen@demo.com", "200000", "218000" },
-                 * { "Emily Rodriguez", "emily.rodriguez@demo.com", "95000", "123500" },
-                 * { "James Wilson", "james.wilson@demo.com", "175000", "168000" },
-                 * { "Lisa Anderson", "lisa.anderson@demo.com", "120000", "156000" }
-                 * };
-                 * 
-                 * for (int i = 0; i < clientData.length; i++) {
-                 * String name = clientData[i][0];
-                 * String email = clientData[i][1];
-                 * BigDecimal invested = new BigDecimal(clientData[i][2]);
-                 * BigDecimal currentValue = new BigDecimal(clientData[i][3]);
-                 * 
-                 * // Check if user already exists
-                 * if (userRepository.findByEmail(email).isPresent()) {
-                 * continue; // Skip if already exists
-                 * }
-                 * 
-                 * // Create user
-                 * com.enterprise.investmentanalytics.model.entity.User user =
-                 * com.enterprise.investmentanalytics.model.entity.User
-                 * .builder()
-                 * .name(name)
-                 * .email(email)
-                 * .password(passwordEncoder.encode("Pass@123"))
-                 * .role(com.enterprise.investmentanalytics.model.enums.Role.CLIENT)
-                 * .status(com.enterprise.investmentanalytics.model.enums.UserStatus.ACTIVE)
-                 * .mobile("555-010" + (i + 1))
-                 * .build();
-                 * user = userRepository.save(user);
-                 * 
-                 * // Create portfolio
-                 * Portfolio portfolio = Portfolio.builder()
-                 * .user(user)
-                 * .totalInvested(invested)
-                 * .totalValue(currentValue)
-                 * .profitPercentage(BigDecimal.ZERO)
-                 * .profitAccrualStatus(com.enterprise.investmentanalytics.model.enums.
-                 * ProfitAccrualStatus.ACTIVE)
-                 * .availableProfit(BigDecimal.ZERO)
-                 * .totalProfitEarned(BigDecimal.ZERO)
-                 * .build();
-                 * portfolio = portfolioRepository.save(portfolio);
-                 * 
-                 * // Create summary DTO
-                 * BigDecimal profit = currentValue.subtract(invested);
-                 * Double growth = invested.compareTo(BigDecimal.ZERO) > 0
-                 * ? profit.divide(invested, 4,
-                 * java.math.RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100))
-                 * .doubleValue()
-                 * : 0.0;
-                 * 
-                 * com.enterprise.investmentanalytics.dto.response.AdminClientSummaryDTO summary
-                 * = com.enterprise.investmentanalytics.dto.response.AdminClientSummaryDTO
-                 * .builder()
-                 * .clientId(user.getId())
-                 * .clientName(user.getName())
-                 * .email(user.getEmail())
-                 * .totalInvested(invested)
-                 * .currentValue(currentValue)
-                 * .profitOrLoss(profit)
-                 * .growthPercentage(growth)
-                 * .lastUpdated(portfolio.getUpdatedAt())
-                 * .build();
-                 * 
-                 * createdClients.add(summary);
-                 * }
-                 * 
-                 * return createdClients;
-                 */
+
                 return new java.util.ArrayList<>();
+        }
+
+        @org.springframework.transaction.annotation.Transactional
+        public void updateProfitConfig(java.util.UUID clientId,
+                        com.enterprise.investmentanalytics.dto.request.PortfolioConfigDTO config) {
+                Portfolio portfolio = portfolioRepository.findByUserId(clientId)
+                                .orElseThrow(() -> new RuntimeException("Portfolio not found for client: " + clientId));
+
+                if (config.getProfitMode() != null) {
+                        portfolio.setProfitMode(config.getProfitMode());
+                        // Update effective date to next month's start - simplified assumption for now
+                        // or
+                        // set logic
+                        // Spec says "Change applies from the next profit cycle".
+                        // We can just record the date of change or let the calculation logic decide.
+                        // For now, let's just save the current date as "Effective Date" of the change,
+                        // or maybe the user wants to see "Effective From".
+                        // If we change it today (Jan 12), next cycle is Feb.
+                        portfolio.setProfitModeEffectiveDate(java.time.LocalDate.now());
+                }
+
+                if (config.getProfitPercentage() != null) {
+                        portfolio.setProfitPercentage(config.getProfitPercentage());
+                }
+
+                if (config.getIsProrationEnabled() != null) {
+                        portfolio.setIsProrationEnabled(config.getIsProrationEnabled());
+                }
+
+                if (config.getAllowEarlyExit() != null) {
+                        portfolio.setAllowEarlyExit(config.getAllowEarlyExit());
+                }
+
+                portfolioRepository.save(portfolio);
         }
 }

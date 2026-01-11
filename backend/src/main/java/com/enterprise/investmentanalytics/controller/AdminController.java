@@ -70,6 +70,9 @@ public class AdminController {
     public ResponseEntity<?> approveUser(@PathVariable UUID id, @AuthenticationPrincipal User admin) {
         User user = userRepository.findById(id).orElseThrow(() -> new RuntimeException("User not found"));
         user.setStatus(com.enterprise.investmentanalytics.model.enums.UserStatus.ACTIVE);
+        if (user.getApprovedAt() == null) {
+            user.setApprovedAt(java.time.LocalDateTime.now());
+        }
         userRepository.save(user);
 
         // Also create portfolio if not exists? Usually done on creation but here we
@@ -156,6 +159,13 @@ public class AdminController {
         return ResponseEntity.ok(portfolioService.getClientSummariesByMediator(id));
     }
 
+    @PutMapping("/client/{clientId}/profit-config")
+    public ResponseEntity<?> updateProfitConfig(@PathVariable UUID clientId,
+            @RequestBody com.enterprise.investmentanalytics.dto.request.PortfolioConfigDTO configDTO) {
+        portfolioService.updateProfitConfig(clientId, configDTO);
+        return ResponseEntity.ok(java.util.Map.of("message", "Profit configuration updated successfully"));
+    }
+
     @GetMapping("/client/{id}/portfolio")
     public ResponseEntity<Map<String, Object>> getClientPortfolio(@PathVariable UUID id) {
         User user = userRepository.findById(id).orElseThrow(() -> new RuntimeException("User not found"));
@@ -193,6 +203,10 @@ public class AdminController {
         response.put("totalInvested", portfolio.getTotalInvested());
         response.put("availableProfit", portfolio.getAvailableProfit());
         response.put("profitPercentage", portfolio.getProfitPercentage());
+        response.put("profitMode", portfolio.getProfitMode());
+        response.put("profitModeEffectiveDate", portfolio.getProfitModeEffectiveDate());
+        response.put("isProrationEnabled", portfolio.getIsProrationEnabled());
+        response.put("allowEarlyExit", portfolio.getAllowEarlyExit());
         response.put("profitAccrualStatus", portfolio.getProfitAccrualStatus());
         // Add new field
         response.put("currentMonthProfit", currentMonthProfit);

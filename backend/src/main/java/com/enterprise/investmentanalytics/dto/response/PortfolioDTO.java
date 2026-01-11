@@ -23,4 +23,8 @@ public class PortfolioDTO {
     private BigDecimal availableProfit;
     private BigDecimal totalProfitEarned;
     private LocalDateTime updatedAt;
+    private com.enterprise.investmentanalytics.model.enums.ProfitMode profitMode;
+    private java.time.LocalDate profitModeEffectiveDate;
+    private Boolean isProrationEnabled;
+    private Boolean allowEarlyExit;
 }

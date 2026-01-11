@@ -51,9 +51,22 @@ public class Portfolio {
     @Column(name = "profit_status")
     private ProfitAccrualStatus profitAccrualStatus;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "profit_mode", nullable = false, columnDefinition = "VARCHAR(20) DEFAULT 'FIXED'")
+    private com.enterprise.investmentanalytics.model.enums.ProfitMode profitMode = com.enterprise.investmentanalytics.model.enums.ProfitMode.FIXED;
+
     @Column(name = "available_profit", precision = 19, scale = 4)
     private BigDecimal availableProfit; // Withdrawable profit balance
 
     @Column(name = "total_profit_earned", precision = 19, scale = 4)
     private BigDecimal totalProfitEarned; // Lifetime profit (never decreases)
+
+    @Column(name = "profit_mode_effective_date")
+    private java.time.LocalDate profitModeEffectiveDate;
+
+    @Column(name = "is_proration_enabled")
+    private Boolean isProrationEnabled; // Can be null (fallback) or true/false
+
+    @Column(name = "allow_early_exit")
+    private Boolean allowEarlyExit;
 }

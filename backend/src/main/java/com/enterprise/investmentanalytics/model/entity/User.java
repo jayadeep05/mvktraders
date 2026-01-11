@@ -67,6 +67,9 @@ public class User implements UserDetails {
     @Column(updatable = false, name = "created_at", columnDefinition = "DATETIME(6)")
     private LocalDateTime createdAt;
 
+    @Column(name = "approved_at", columnDefinition = "DATETIME(6)")
+    private LocalDateTime approvedAt;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "mediator_id", columnDefinition = "BINARY(16)")
     private User mediator;

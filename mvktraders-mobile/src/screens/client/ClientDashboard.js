@@ -552,6 +552,69 @@ export default function ClientDashboard({ navigation }) {
                     </View>
                 </View>
 
+
+
+
+                {/* Profit Configuration Card - Read Only */}
+                <View style={[styles.card, { marginTop: 16 }]}>
+                    <View style={styles.cardHeaderRow}>
+                        <TrendingUp size={20} color={theme.primary} />
+                        <Text style={styles.cardTitle}>Current Profit Plan</Text>
+                    </View>
+
+                    <View style={{ marginTop: 16 }}>
+                        <View style={styles.configItemRow}>
+                            <View>
+                                <Text style={styles.configLabel}>Profit Mode</Text>
+                                <Text style={styles.configSub}>How your profit is calculated</Text>
+                            </View>
+                            <View style={[styles.modeBadge, {
+                                backgroundColor: portfolio?.profitMode === 'COMPOUNDING' ? 'rgba(99, 102, 241, 0.1)' : 'rgba(16, 185, 129, 0.1)',
+                                borderColor: portfolio?.profitMode === 'COMPOUNDING' ? theme.primary : theme.success
+                            }]}>
+                                <Text style={[styles.modeBadgeText, {
+                                    color: portfolio?.profitMode === 'COMPOUNDING' ? theme.primary : theme.success
+                                }]}>
+                                    {portfolio?.profitMode === 'COMPOUNDING' ? 'COMPOUNDING' : 'FIXED MONTHLY'}
+                                </Text>
+                            </View>
+                        </View>
+
+                        <View style={styles.divider} />
+
+                        <View style={styles.configItemRow}>
+                            <View>
+                                <Text style={styles.configLabel}>Monthly Rate</Text>
+                                <Text style={styles.configSub}>Applied on invested capital</Text>
+                            </View>
+                            <Text style={styles.rateValue}>{portfolio?.profitPercentage || 0}%</Text>
+                        </View>
+
+                        {/* Only show if relevant or explicitly true */}
+                        {portfolio?.isProrationEnabled === true && (
+                            <>
+                                <View style={styles.divider} />
+                                <View style={styles.configItemRow}>
+                                    <View>
+                                        <Text style={styles.configLabel}>1st Month Partial</Text>
+                                        <Text style={styles.configSub}>Prorated profit for join month</Text>
+                                    </View>
+                                    <Check size={18} color={theme.success} />
+                                </View>
+                            </>
+                        )}
+
+                        {portfolio?.profitModeEffectiveDate && (
+                            <View style={styles.infoBox}>
+                                <Clock size={12} color={theme.textSecondary} />
+                                <Text style={styles.infoBoxText}>
+                                    Active since: {portfolio.profitModeEffectiveDate}
+                                </Text>
+                            </View>
+                        )}
+                    </View>
+                </View>
+
                 {/* Profit Summary & History */}
                 <View style={[styles.card, { marginTop: 16 }]}>
                     <View style={styles.cardHeaderRow}>
@@ -742,15 +805,17 @@ export default function ClientDashboard({ navigation }) {
 
 
             {/* Mobile Sidebar */}
-            {mobileMenuOpen && (
-                <TouchableOpacity
-                    style={styles.overlay}
-                    activeOpacity={1}
-                    onPress={toggleSidebar}
-                >
-                    <View />
-                </TouchableOpacity>
-            )}
+            {
+                mobileMenuOpen && (
+                    <TouchableOpacity
+                        style={styles.overlay}
+                        activeOpacity={1}
+                        onPress={toggleSidebar}
+                    >
+                        <View />
+                    </TouchableOpacity>
+                )
+            }
 
             <Animated.View style={[styles.sidebar, { transform: [{ translateX: slideAnim }] }]}>
                 <View style={styles.sidebarHeader}>
@@ -772,7 +837,7 @@ export default function ClientDashboard({ navigation }) {
 
             </Animated.View>
 
-        </SafeAreaView>
+        </SafeAreaView >
     );
 }
 
@@ -911,5 +976,15 @@ const getStyles = (theme) => StyleSheet.create({
     sidebarHeader: { marginBottom: 32, paddingTop: 32, paddingLeft: 4 },
     sidebarTitle: { color: theme.textPrimary, fontSize: 24, fontWeight: '800', letterSpacing: 0.5 },
     sidebarItem: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 12, paddingHorizontal: 10, borderRadius: 10 },
-    sidebarText: { color: theme.textSecondary, fontSize: 15, fontWeight: '500' }
+    sidebarText: { color: theme.textSecondary, fontSize: 15, fontWeight: '500' },
+
+    // Profit Config Card Styles
+    configItemRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12 },
+    configLabel: { fontSize: 14, fontWeight: '700', color: theme.textPrimary, marginBottom: 2 },
+    configSub: { fontSize: 11, color: theme.textSecondary, fontWeight: '500' },
+    modeBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, borderWidth: 1 },
+    modeBadgeText: { fontSize: 11, fontWeight: '800', letterSpacing: 0.5 },
+    rateValue: { fontSize: 18, fontWeight: '800', color: theme.textPrimary, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
+    infoBox: { marginTop: 16, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: theme.background, padding: 8, borderRadius: 8 },
+    infoBoxText: { fontSize: 11, color: theme.textSecondary, fontWeight: '500' }
 });

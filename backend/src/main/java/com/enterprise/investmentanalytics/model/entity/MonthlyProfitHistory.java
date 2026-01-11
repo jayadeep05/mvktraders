@@ -54,4 +54,13 @@ public class MonthlyProfitHistory {
     @CreationTimestamp
     @Column(name = "calculated_at", updatable = false)
     private LocalDateTime calculatedAt;
+
+    @Column(name = "eligible_capital", precision = 19, scale = 4)
+    private BigDecimal eligibleCapital;
+
+    @Column(name = "profit_mode")
+    private String profitMode;
+
+    @Column(name = "is_prorated")
+    private boolean isProrated;
 }

@@ -72,6 +72,39 @@ export default function AdminClientDetails({ route, navigation }) {
     const [fundNote, setFundNote] = useState('');
     const [fundLoading, setFundLoading] = useState(false);
 
+    // Profit Config State
+    const [profitMode, setProfitMode] = useState('FIXED');
+    const [profitPercentage, setProfitPercentage] = useState('');
+    const [isProrationEnabled, setIsProrationEnabled] = useState(true);
+    const [allowEarlyExit, setAllowEarlyExit] = useState(false);
+    const [profitEffectiveDate, setProfitEffectiveDate] = useState(null);
+    const [savingProfit, setSavingProfit] = useState(false);
+
+    const handleSaveProfitConfig = async () => {
+        Alert.alert('Confirm Update', 'This will affect future profit calculations only. Past profits will not be changed.', [
+            { text: 'Cancel', style: 'cancel' },
+            {
+                text: 'Confirm Save', onPress: async () => {
+                    try {
+                        setSavingProfit(true);
+                        await adminService.updateClientProfitConfig(clientId, {
+                            profitMode,
+                            profitPercentage: parseFloat(profitPercentage) || 0,
+                            isProrationEnabled,
+                            allowEarlyExit
+                        });
+                        Alert.alert('Success', 'Profit configuration updated.');
+                        loadData(false);
+                    } catch (e) {
+                        const errorMsg = e.response?.data?.message || e.message || 'Update failed';
+                        Alert.alert('Error', errorMsg);
+                    }
+                    finally { setSavingProfit(false); }
+                }
+            }
+        ]);
+    };
+
     // Filter
     const [filterType, setFilterType] = useState('ALL');
     const [filterVisible, setFilterVisible] = useState(false);
@@ -90,6 +123,13 @@ export default function AdminClientDetails({ route, navigation }) {
             ]);
             setPortfolio(portRes);
             setTransactions(transRes);
+
+            // Set Profit Config
+            setProfitMode(portRes.profitMode || 'FIXED');
+            setProfitPercentage(portRes.profitPercentage ? String(portRes.profitPercentage) : '0');
+            setIsProrationEnabled(portRes.isProrationEnabled !== false);
+            setAllowEarlyExit(portRes.allowEarlyExit === true);
+            setProfitEffectiveDate(portRes.profitModeEffectiveDate);
         } catch (error) {
             console.error('Error loading client details:', error);
             const errorMessage = error.response?.data?.message || error.message || 'Failed to load client details';
@@ -400,6 +440,103 @@ export default function AdminClientDetails({ route, navigation }) {
                             <Text style={[styles.quickActionBtnText, { color: portfolio?.user?.status === 'INACTIVE' ? theme.textSecondary : theme.error }]}>Withdraw</Text>
                         </TouchableOpacity>
                     </View>
+                </View>
+
+
+
+                {/* Profit & Compounding Configuration */}
+                <View style={styles.sectionHeader}>
+                    <View style={styles.sectionTitleRow}>
+                        <TrendingUp size={18} color={theme.primary} />
+                        <Text style={styles.sectionTitle}>Profit & Compounding</Text>
+                    </View>
+                    {profitEffectiveDate && (
+                        <Text style={[styles.effectiveDateText, { color: theme.textSecondary }]}>Effective: {profitEffectiveDate}</Text>
+                    )}
+                </View>
+
+                <View style={styles.statsCard}>
+                    <View style={styles.configRow}>
+                        <View style={{ flex: 1 }}>
+                            <Text style={styles.configLabel}>Profit Mode</Text>
+                            <Text style={styles.configDesc}>Determines how future profits are applied</Text>
+                        </View>
+                        <View style={styles.modeToggleContainer}>
+                            <TouchableOpacity
+                                style={[styles.modeBtn, profitMode === 'FIXED' && { backgroundColor: theme.primary }]}
+                                onPress={() => setProfitMode('FIXED')}
+                            >
+                                <Text style={[styles.modeBtnText, profitMode === 'FIXED' && { color: '#fff' }]}>Fixed</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.modeBtn, profitMode === 'COMPOUNDING' && { backgroundColor: theme.primary }]}
+                                onPress={() => setProfitMode('COMPOUNDING')}
+                            >
+                                <Text style={[styles.modeBtnText, profitMode === 'COMPOUNDING' && { color: '#fff' }]}>Compound</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+
+                    <View style={styles.divider} />
+
+                    <View style={styles.configRow}>
+                        <View style={{ flex: 1 }}>
+                            <Text style={styles.configLabel}>Monthly Profit %</Text>
+                            <Text style={styles.configDesc}>Percentage applied for next cycle</Text>
+                        </View>
+                        <View style={styles.rateInputWrapper}>
+                            <TextInput
+                                style={[styles.rateInput, { color: theme.textPrimary }]}
+                                value={profitPercentage}
+                                onChangeText={setProfitPercentage}
+                                keyboardType="decimal-pad"
+                                placeholder="0.0"
+                                placeholderTextColor={theme.textSecondary}
+                            />
+                            <Text style={[styles.percentSymbol, { color: theme.textSecondary }]}>%</Text>
+                        </View>
+                    </View>
+
+                    <View style={styles.divider} />
+
+                    <View style={styles.configRow}>
+                        <View style={{ flex: 1 }}>
+                            <Text style={styles.configLabel}>First Month Partial Profit</Text>
+                            <Text style={styles.configDesc}>Apply profit for partial first month</Text>
+                        </View>
+                        <TouchableOpacity
+                            onPress={() => setIsProrationEnabled(!isProrationEnabled)}
+                            style={[styles.toggleBtn, isProrationEnabled && { backgroundColor: theme.success }, { backgroundColor: isProrationEnabled ? theme.success : theme.cardBorder }]}
+                        >
+                            <View style={[styles.toggleCircle, isProrationEnabled && { transform: [{ translateX: 14 }] }, { backgroundColor: '#fff' }]} />
+                        </TouchableOpacity>
+                    </View>
+
+                    <View style={styles.divider} />
+
+                    <View style={styles.configRow}>
+                        <View style={{ flex: 1 }}>
+                            <Text style={styles.configLabel}>Exit Permission</Text>
+                            <Text style={styles.configDesc}>Allow early exit for this client</Text>
+                        </View>
+                        <TouchableOpacity
+                            onPress={() => setAllowEarlyExit(!allowEarlyExit)}
+                            style={[styles.toggleBtn, allowEarlyExit && { backgroundColor: theme.success }, { backgroundColor: allowEarlyExit ? theme.success : theme.cardBorder }]}
+                        >
+                            <View style={[styles.toggleCircle, allowEarlyExit && { transform: [{ translateX: 14 }] }, { backgroundColor: '#fff' }]} />
+                        </TouchableOpacity>
+                    </View>
+
+                    <TouchableOpacity
+                        style={[styles.saveConfigBtn, { backgroundColor: theme.primary, marginTop: 16 }]}
+                        onPress={handleSaveProfitConfig}
+                        disabled={savingProfit}
+                    >
+                        {savingProfit ? <ActivityIndicator size="small" color="#fff" /> : (
+                            <Text style={styles.saveConfigText}>Save Configuration</Text>
+                        )}
+                    </TouchableOpacity>
+                    <Text style={[styles.configFooterText, { color: theme.textSecondary }]}>Changes will apply from the next profit calculation cycle.</Text>
                 </View>
 
                 {/* Primary Actions */}
@@ -964,6 +1101,24 @@ const getStyles = (theme, isDark) => StyleSheet.create({
     impactLabel: { fontSize: 11, fontWeight: '700', color: theme.textSecondary },
     impactValue: { fontSize: 17, fontWeight: '800', color: theme.textPrimary },
 
-    payoutSubmitBtn: { height: 60, borderRadius: 18, overflow: 'hidden', shadowColor: theme.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 4 }
+    payoutSubmitBtn: { height: 60, borderRadius: 18, overflow: 'hidden', shadowColor: theme.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 4 },
 
+    // Profit UI Styles
+    effectiveDateText: { fontSize: 13, fontWeight: '600' },
+    profitConfigCard: { backgroundColor: theme.cardBg, borderRadius: 24, padding: 20, borderWidth: 1, borderColor: theme.cardBorder, marginBottom: 24 },
+    configRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12 },
+    configLabel: { fontSize: 15, fontWeight: '800', color: theme.textPrimary, marginBottom: 4 },
+    configDesc: { fontSize: 13, color: theme.textSecondary, fontWeight: '500', maxWidth: 220 },
+    modeToggleContainer: { flexDirection: 'row', backgroundColor: theme.background, padding: 4, borderRadius: 12, borderWidth: 1, borderColor: theme.cardBorder },
+    modeBtn: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 },
+    modeBtnText: { fontSize: 12, fontWeight: '800', color: theme.textSecondary },
+    divider: { height: 1, backgroundColor: theme.cardBorder, marginVertical: 8 },
+    rateInputWrapper: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.background, borderWidth: 1, borderColor: theme.cardBorder, borderRadius: 12, paddingHorizontal: 12, height: 44, width: 100 },
+    rateInput: { flex: 1, fontSize: 16, fontWeight: '800', textAlign: 'right', marginRight: 4 },
+    percentSymbol: { fontSize: 14, fontWeight: '700' },
+    toggleBtn: { width: 50, height: 28, borderRadius: 14, justifyContent: 'center', paddingHorizontal: 4 },
+    toggleCircle: { width: 22, height: 22, borderRadius: 11, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: 2 },
+    saveConfigBtn: { alignItems: 'center', justifyContent: 'center', height: 50, borderRadius: 16 },
+    saveConfigText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+    configFooterText: { marginTop: 16, fontSize: 12, fontWeight: '500', textAlign: 'center' }
 });

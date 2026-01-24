@@ -140,7 +140,8 @@ const ClientDashboard = () => {
                     totalInvested: 0,
                     cashBalance: 0,
                     profitPercentage: 0,
-                    profitAccrualStatus: 'PAUSED'
+                    profitAccrualStatus: 'PAUSED',
+                    nextEstimatedPayout: 0
                 });
             }
 
@@ -149,7 +150,7 @@ const ClientDashboard = () => {
                 setProfitHistory(profitResult.value.sort((a, b) => (a.year - b.year) || (a.month - b.month)));
             }
 
-            // Merge History
+            // Merge History - Only Deposits and Withdrawals
             let allHistory = [];
             if (depositsResult.status === 'fulfilled') {
                 const deposits = depositsResult.value.map(d => ({ ...d, type: 'DEPOSIT' }));
@@ -159,17 +160,48 @@ const ClientDashboard = () => {
                 const withdrawals = withdrawalsResult.value.map(w => ({ ...w, type: 'WITHDRAWAL' }));
                 allHistory = [...allHistory, ...withdrawals];
             }
+
+            // Add completed Deposits/Withdrawals from transactions (if any)
             if (transactionsResult.status === 'fulfilled') {
-                // Filter for PAYOUTs (as deposits/withdrawals are already in requests)
-                const payouts = transactionsResult.value
-                    .filter(t => t.type === 'PAYOUT')
+                const completedTransactions = transactionsResult.value
+                    .filter(t => t.type === 'DEPOSIT' || t.type === 'WITHDRAWAL')
                     .map(t => ({
                         ...t,
-                        type: 'PAYOUT',
-                        status: 'COMPLETED',
                         createdAt: t.date || t.createdAt || t.timestamp
                     }));
-                allHistory = [...allHistory, ...payouts];
+                allHistory = [...allHistory, ...completedTransactions];
+            }
+
+            // Handle Transactions: Payouts go to Profit History, others might strictly be ignored or handled if needed
+            // But per request "Profit actions in profit summary", so remove PAYOUT from main history
+
+            let payouts = [];
+            if (transactionsResult.status === 'fulfilled') {
+                payouts = transactionsResult.value
+                    .filter(t => t.type === 'PAYOUT')
+                    .map(t => ({
+                        calculatedAt: t.date || t.createdAt || t.timestamp,
+                        profitAmount: t.amount,
+                        type: 'PAYOUT',
+                        isPayout: true,
+                        // map other fields to match profit history structure
+                        year: new Date(t.date || t.createdAt).getFullYear(),
+                        month: new Date(t.date || t.createdAt).getMonth() + 1
+                    }));
+            }
+
+            // Update Profit History with Payouts
+            if (profitResult.status === 'fulfilled') {
+                // Merge database profit history with transaction payouts
+                // We prefer payouts from transactions as they are actual money movements
+                // But we might have duplicates if profit history is just a log. 
+                // Assuming profitHistory is the 'monthly record' and payouts are 'actual payments'.
+                // If we just want to SHOW them in the Profit Summary card:
+                const combined = [...profitResult.value, ...payouts];
+                combined.sort((a, b) => new Date(b.calculatedAt || b.createdAt) - new Date(a.calculatedAt || a.createdAt));
+                setProfitHistory(combined);
+            } else {
+                setProfitHistory(payouts);
             }
 
             // Sort by Date Descending
@@ -279,8 +311,8 @@ const ClientDashboard = () => {
 
     // Next Profit Snapshot Calculation
     const nextProfitBase = netInvestment;
-    const nextProfitRate = 0.04;
-    const nextProfitAmount = nextProfitBase * nextProfitRate;
+    // Use the backend-provided estimation if available, else 0.
+    const nextProfitAmount = portfolio?.nextEstimatedPayout || 0;
     const nextProfitDate = new Date();
     nextProfitDate.setMonth(nextProfitDate.getMonth() + 1);
     nextProfitDate.setDate(1); // 1st of next month
@@ -1087,7 +1119,7 @@ const ClientDashboard = () => {
                             borderRadius: '20px',
                             border: '1px solid rgba(16, 185, 129, 0.2)'
                         }}>
-                            4% return
+                            {portfolio?.profitPercentage ? `${portfolio.profitPercentage}% return` : '4% return'}
                         </div>
                     </div>
                 </div>
@@ -1105,7 +1137,7 @@ const ClientDashboard = () => {
                                 fontFamily: 'monospace',
                                 color: '#fbbf24'
                             }}>
-                                ₹{(portfolio?.availableProfit || 0).toLocaleString()}
+                                ₹{Math.floor(portfolio?.availableProfit || 0).toLocaleString()}
                             </h3>
                         </div>
                         <div style={{ padding: '12px', background: 'rgba(251, 191, 36, 0.1)', borderRadius: '12px', color: '#fbbf24' }}>
@@ -1139,7 +1171,7 @@ const ClientDashboard = () => {
                                 Current Balance
                             </p>
                             <h3 style={{ fontSize: '36px', fontWeight: '700', fontFamily: 'monospace', color: '#fff' }}>
-                                ₹{((portfolio?.totalInvested || 0) + (portfolio?.availableProfit || 0)).toLocaleString()}
+                                ₹{Math.floor((portfolio?.totalInvested || 0) + (portfolio?.availableProfit || 0)).toLocaleString()}
                             </h3>
                         </div>
                         <div style={{ padding: '12px', background: 'rgba(99, 102, 241, 0.2)', borderRadius: '12px', color: '#fff' }}>

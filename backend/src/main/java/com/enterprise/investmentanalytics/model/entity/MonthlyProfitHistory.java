@@ -16,9 +16,7 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 @Entity
-@Table(name = "monthly_profit_history", uniqueConstraints = {
-        @UniqueConstraint(columnNames = { "user_id", "month", "year" })
-})
+@Table(name = "monthly_profit_history")
 public class MonthlyProfitHistory {
 
     @Id
@@ -27,7 +25,7 @@ public class MonthlyProfitHistory {
     private UUID id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_id", nullable = false, columnDefinition = "BINARY(16)")
+    @JoinColumn(name = "user_id", referencedColumnName = "user_id", nullable = false)
     private User user;
 
     @Column(nullable = false)

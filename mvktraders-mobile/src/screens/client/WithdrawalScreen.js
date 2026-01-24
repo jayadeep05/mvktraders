@@ -6,6 +6,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { ArrowLeft, CheckCircle, Wallet, TrendingUp, DollarSign, CalendarCheck, ShieldCheck, AlertTriangle } from 'lucide-react-native';
 import { withdrawalService } from '../../api/client';
 import { usePortfolio } from '../../context/PortfolioContext';
+import { formatCurrency } from '../../utils/formatters';
 
 export default function WithdrawalScreen({ navigation, route }) {
     const { theme, isDark } = useTheme();
@@ -87,14 +88,14 @@ export default function WithdrawalScreen({ navigation, route }) {
                 <View style={styles.infoCardValue}>
                     {hasChanged ? (
                         <View>
-                            <Text style={styles.oldValue}>₹{Math.round(current).toLocaleString('en-IN')}</Text>
+                            <Text style={styles.oldValue}>{formatCurrency(Math.round(current))}</Text>
                             <Text style={[styles.newValue, { color: activeColor }]}>
-                                ₹{Math.round(projected).toLocaleString('en-IN')}
+                                {formatCurrency(Math.round(projected))}
                             </Text>
                         </View>
                     ) : (
                         <Text style={[styles.staticValue, amountNum > 0 && { color: activeColor }]}>
-                            ₹{Math.round(current).toLocaleString('en-IN')}
+                            {formatCurrency(Math.round(current))}
                         </Text>
                     )}
                 </View>
@@ -284,12 +285,12 @@ export default function WithdrawalScreen({ navigation, route }) {
                         <Text style={styles.modalText}>
                             {isCapitalImpacted ? (
                                 <>
-                                    You are about to withdraw <Text style={styles.modalHighlight}>₹{amountNum.toLocaleString('en-IN')}</Text>.
-                                    {'\n\n'}This will reduce your invested capital. Consequently, your estimated profit for next month will decrease to <Text style={[styles.modalHighlight, { color: '#ef4444' }]}>₹{Math.round(newNextMonthProfit).toLocaleString('en-IN')}</Text>.
+                                    You are about to withdraw <Text style={styles.modalHighlight}>{formatCurrency(amountNum)}</Text>.
+                                    {'\n\n'}This will reduce your invested capital. Consequently, your estimated profit for next month will decrease to <Text style={[styles.modalHighlight, { color: '#ef4444' }]}>{formatCurrency(Math.round(newNextMonthProfit))}</Text>.
                                 </>
                             ) : (
                                 <>
-                                    You are about to withdraw <Text style={styles.modalHighlight}>₹{amountNum.toLocaleString('en-IN')}</Text> from your available profit.
+                                    You are about to withdraw <Text style={styles.modalHighlight}>{formatCurrency(amountNum)}</Text> from your available profit.
                                     {'\n\n'}Your capital investment and future monthly returns will remain fully intact.
                                 </>
                             )}

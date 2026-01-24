@@ -19,5 +19,7 @@ public interface MonthlyProfitHistoryRepository extends JpaRepository<MonthlyPro
 
     Page<MonthlyProfitHistory> findByUserIdOrderByYearDescMonthDesc(UUID userId, Pageable pageable);
 
-    Optional<MonthlyProfitHistory> findByUserIdAndMonthAndYear(UUID userId, int month, int year);
+    Optional<MonthlyProfitHistory> findFirstByUserIdAndMonthAndYear(UUID userId, int month, int year);
+
+    List<MonthlyProfitHistory> findAllByUserIdAndMonthAndYear(UUID userId, int month, int year);
 }

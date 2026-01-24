@@ -27,4 +27,6 @@ public class PortfolioDTO {
     private java.time.LocalDate profitModeEffectiveDate;
     private Boolean isProrationEnabled;
     private Boolean allowEarlyExit;
+    private String payoutFrequency; // e.g., "1 MONTHS", "2 MINUTES"
+    private BigDecimal nextEstimatedPayout;
 }

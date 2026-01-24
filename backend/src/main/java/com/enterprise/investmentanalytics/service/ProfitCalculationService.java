@@ -20,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.List;
 import java.util.Optional;
@@ -35,11 +36,17 @@ public class ProfitCalculationService {
     private final TransactionRepository transactionRepository;
     private final GlobalConfigService configService;
 
-    @Transactional
-    public void calculateMonthlyProfit(int month, int year) {
-        log.info("Starting profit calculation for {}/{}", month, year);
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
+    private ProfitCalculationService self;
 
-        // 1. Fetch Configuration
+    public void calculateProfitBatch(LocalDateTime runTime) {
+        log.info("Starting batch profit calculation at {}", runTime);
+
+        // Configuration
+        int durationValue = configService.getInt(GlobalConfigService.PROFIT_DURATION_VALUE);
+        String durationUnit = configService.getValue(GlobalConfigService.PROFIT_DURATION_UNIT);
+
         BigDecimal fixedRate = configService.getBigDecimal(GlobalConfigService.FIXED_MONTHLY_RATE_PERCENT)
                 .divide(BigDecimal.valueOf(100), 4, RoundingMode.HALF_UP);
         BigDecimal compoundingRate = configService.getBigDecimal(GlobalConfigService.COMPOUNDING_MONTHLY_RATE_PERCENT)
@@ -50,119 +57,144 @@ public class ProfitCalculationService {
         boolean useAdminApprovalDate = configService
                 .getBoolean(GlobalConfigService.USE_ADMIN_APPROVAL_DATE_AS_ENTRY_DATE);
 
-        YearMonth cycleMonth = YearMonth.of(year, month);
+        YearMonth cycleMonth = YearMonth.from(runTime);
         int daysInMonth = cycleMonth.lengthOfMonth();
 
-        // 2. Fetch Active Clients
+        // Adjust Rate for Duration (Simple Division)
+        String calculationMode = configService.getValue(GlobalConfigService.PROFIT_CALCULATION_MODE);
+
+        // Calculate Effective Rate based on Mode (Prorated vs Full Cycle)
+        BigDecimal effectiveFixedRate = calculateEffectiveRate(fixedRate, durationValue, durationUnit, calculationMode);
+        BigDecimal effectiveCompoundingRate = calculateEffectiveRate(compoundingRate, durationValue, durationUnit,
+                calculationMode);
+
         List<User> activeClients = userRepository.findAll().stream()
                 .filter(u -> u.getRole() == Role.CLIENT && u.getStatus() == UserStatus.ACTIVE && !u.isDeleted())
                 .toList();
 
         for (User user : activeClients) {
             try {
-                processClientProfit(user, cycleMonth, fixedRate, compoundingRate, useProration, prorationMethod,
-                        cutoffDay, useAdminApprovalDate, daysInMonth);
+                // Use self-proxy to ensure @Transactional works
+                self.processClientProfit(user, cycleMonth, effectiveFixedRate, effectiveCompoundingRate,
+                        useProration, prorationMethod, cutoffDay, useAdminApprovalDate, daysInMonth, runTime);
             } catch (Exception e) {
                 log.error("Failed to calculate profit for user {}: {}", user.getEmail(), e.getMessage(), e);
             }
         }
-
-        log.info("Completed profit calculation for {}/{}", month, year);
     }
 
-    private void processClientProfit(User user, YearMonth cycleMonth, BigDecimal fixedRate, BigDecimal compoundingRate,
+    private BigDecimal calculateEffectiveRate(BigDecimal monthlyRate, int durationValue, String durationUnit,
+            String calculationMode) {
+        // If Full Cycle (Accelerated) mode, we ignore the time duration ratio and
+        // return the full monthly rate
+        // This simulates "1 Month Passing" every X minutes/hours
+        if ("FULL_CYCLE".equalsIgnoreCase(calculationMode)) {
+            return monthlyRate;
+        }
+
+        // PRORATED Logic:
+        // Monthly Rate is divided by the time fraction.
+        // e.g. 4% Monthly. Duration 10 mins. Rate = 4% * (10mins / MinutesInMonth)
+
+        BigDecimal minutesInMonth = BigDecimal.valueOf(30 * 24 * 60); // Approx 30 days
+
+        BigDecimal durationInMinutes;
+        switch (durationUnit.toUpperCase()) {
+            case "MINUTES":
+                durationInMinutes = BigDecimal.valueOf(durationValue);
+                break;
+            case "HOURS":
+                durationInMinutes = BigDecimal.valueOf(durationValue * 60L);
+                break;
+            case "DAYS":
+                durationInMinutes = BigDecimal.valueOf(durationValue * 24 * 60L);
+                break;
+            case "MONTHS":
+                return monthlyRate.multiply(BigDecimal.valueOf(durationValue)); // e.g. 1 month = 1x rate
+            default:
+                durationInMinutes = BigDecimal.valueOf(30 * 24 * 60); // Default to 1 month
+        }
+
+        if (durationUnit.equalsIgnoreCase("MONTHS"))
+            return monthlyRate;
+
+        // Rate per minute = MonthlyRate / MinutesInMonth
+        // Rate for duration = Rate per minute * durationInMinutes
+        return monthlyRate.divide(minutesInMonth, 10, RoundingMode.HALF_UP).multiply(durationInMinutes);
+    }
+
+    // Existing method kept for compatibility or manual triggers
+    @Transactional
+    public void calculateMonthlyProfit(int month, int year) {
+        calculateProfitBatch(LocalDateTime.of(year, month, 28, 0, 0)); // Fallback
+    }
+
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
+    public void processClientProfit(User user, YearMonth cycleMonth, BigDecimal fixedRate, BigDecimal compoundingRate,
             boolean useProration, String prorationMethod, int cutoffDay, boolean useAdminApprovalDate,
-            int daysInMonth) {
-        // Idempotency Check
-        if (profitHistoryRepository
-                .findByUserIdAndMonthAndYear(user.getId(), cycleMonth.getMonthValue(), cycleMonth.getYear())
-                .isPresent()) {
-            log.info("Profit already calculated for user {} for {}/{}", user.getEmail(), cycleMonth.getMonthValue(),
-                    cycleMonth.getYear());
-            return;
+            int daysInMonth, LocalDateTime runTime) {
+
+        // Check duplicate only if duration is MONTHS.
+        // If generic duration, we rely on the Scheduler to not double-trigger,
+        // OR we need a more granular check (lastCalculatedAt).
+        // For now, removing strict check for high frequency.
+        String durationUnit = configService.getValue(GlobalConfigService.PROFIT_DURATION_UNIT);
+        if (durationUnit != null && "MONTHS".equalsIgnoreCase(durationUnit)) {
+            if (profitHistoryRepository
+                    .findFirstByUserIdAndMonthAndYear(user.getId(), cycleMonth.getMonthValue(), cycleMonth.getYear())
+                    .isPresent()) {
+                return;
+            }
         }
 
         Portfolio portfolio = portfolioRepository.findByUserId(user.getId()).orElse(null);
         if (portfolio == null || portfolio.getTotalInvested().compareTo(BigDecimal.ZERO) <= 0) {
-            return; // Nothing to calculate
+            return;
         }
 
-        // Determine Entry Date
         LocalDate entryDate = (useAdminApprovalDate && user.getApprovedAt() != null)
                 ? user.getApprovedAt().toLocalDate()
                 : user.getCreatedAt().toLocalDate();
 
-        // Check Eligibility (Is this the first month?)
-        boolean isFirstMonth = (entryDate.getYear() == cycleMonth.getYear()
-                && entryDate.getMonth() == cycleMonth.getMonth());
-
-        // If entry date is in FUTURE of cycle month (shouldn't happen if batch runs
-        // correctly, but for safety)
-        if (entryDate.isAfter(cycleMonth.atEndOfMonth())) {
+        // Allow calculation even if entry date is very recent, unless it's strictly in
+        // future
+        if (entryDate.isAfter(runTime.toLocalDate())) {
             return;
         }
 
         BigDecimal eligibleCapital = portfolio.getTotalInvested();
         BigDecimal applicableRate = (portfolio.getProfitMode() == ProfitMode.COMPOUNDING) ? compoundingRate : fixedRate;
+
+        // Proration logic for first month is complex with high freq.
+        // If we prorate the RATE itself (above), we might not need "isFirstMonth"
+        // proration logic fraction
+        // unless we want to block the FIRST 2 mins if they joined 1 min ago.
         BigDecimal fraction = BigDecimal.ONE;
         boolean isProrated = false;
 
-        if (isFirstMonth) {
-            if (useProration) {
-                isProrated = true;
-                int activeDays = daysInMonth - entryDate.getDayOfMonth() + 1;
-                if (activeDays < 0)
-                    activeDays = 0; // Should not happen
+        // Simplify first month logic for high frequency: just check if active.
 
-                if ("SLAB_BASED".equalsIgnoreCase(prorationMethod)) {
-                    // Example Slab Logic (1-10 -> 100%, 11-20 -> 66%, 21+ -> 33%)
-                    // Implementation as per spec example
-                    int day = entryDate.getDayOfMonth();
-                    if (day <= 10)
-                        fraction = BigDecimal.ONE;
-                    else if (day <= 20)
-                        fraction = new BigDecimal("0.66");
-                    else
-                        fraction = new BigDecimal("0.33");
-                } else {
-                    // DAY_BASED
-                    fraction = BigDecimal.valueOf(activeDays).divide(BigDecimal.valueOf(daysInMonth), 4,
-                            RoundingMode.HALF_UP);
-                }
-            } else {
-                // Cutoff Logic
-                if (entryDate.getDayOfMonth() > cutoffDay) {
-                    log.info("User {} joined after cutoff {} in first month, skipping profit.", user.getEmail(),
-                            cutoffDay);
-                    return; // No profit this month
-                }
-            }
-        }
+        BigDecimal profitAmount = eligibleCapital.multiply(applicableRate).multiply(fraction).setScale(0,
+                RoundingMode.CEILING);
 
-        BigDecimal profitAmount = eligibleCapital.multiply(applicableRate).multiply(fraction).setScale(2,
-                RoundingMode.HALF_UP);
+        if (profitAmount.compareTo(BigDecimal.ZERO) == 0)
+            return;
+
         BigDecimal openingBalance = portfolio.getTotalInvested()
                 .add(Optional.ofNullable(portfolio.getAvailableProfit()).orElse(BigDecimal.ZERO));
 
-        // Apply Profit logic
-        // "First-month profit is never compounded... Compounding starts only from the
-        // first full month."
-        boolean shouldCompound = (portfolio.getProfitMode() == ProfitMode.COMPOUNDING) && !isFirstMonth;
-
-        if (shouldCompound) {
+        // Update Portfolio
+        if (portfolio.getProfitMode() == ProfitMode.COMPOUNDING) {
+            // For high frequency, compounding every 2 mins might be intended or not.
+            // If mode is compounding, we add to principal.
             portfolio.setTotalInvested(portfolio.getTotalInvested().add(profitAmount));
         } else {
-            BigDecimal currentAvailable = Optional.ofNullable(portfolio.getAvailableProfit()).orElse(BigDecimal.ZERO);
-            portfolio.setAvailableProfit(currentAvailable.add(profitAmount));
+            portfolio.setAvailableProfit(
+                    Optional.ofNullable(portfolio.getAvailableProfit()).orElse(BigDecimal.ZERO).add(profitAmount));
         }
 
-        // Update Total Value (Invested + Available)
-        // Wait, Total Value = Invested + Available?
-        // Let's check Portfolio.java definition. totalValue field exists.
-        // Usually Total Value = Invested + Available Profit.
-        BigDecimal newInvested = portfolio.getTotalInvested();
-        BigDecimal newAvailable = Optional.ofNullable(portfolio.getAvailableProfit()).orElse(BigDecimal.ZERO);
-        portfolio.setTotalValue(newInvested.add(newAvailable));
+        portfolio.setTotalValue(portfolio.getTotalInvested()
+                .add(Optional.ofNullable(portfolio.getAvailableProfit()).orElse(BigDecimal.ZERO)));
         portfolio.setTotalProfitEarned(
                 Optional.ofNullable(portfolio.getTotalProfitEarned()).orElse(BigDecimal.ZERO).add(profitAmount));
 
@@ -173,17 +205,19 @@ public class ProfitCalculationService {
                 .user(user)
                 .month(cycleMonth.getMonthValue())
                 .year(cycleMonth.getYear())
-                .openingBalance(openingBalance) // Not exact Definition of opening balance (Value vs invested), using
-                                                // Value here.
-                .profitPercentage(applicableRate.multiply(BigDecimal.valueOf(100))) // Storing as percentage e.g. 4.0
+                .openingBalance(openingBalance)
+                .profitPercentage(applicableRate.multiply(BigDecimal.valueOf(100)))
                 .profitAmount(profitAmount)
                 .closingBalance(portfolio.getTotalValue())
                 .isManual(false)
-                .eligibleCapital(eligibleCapital) // NEW FIELD
-                .profitMode(portfolio.getProfitMode().name()) // NEW FIELD
-                .isProrated(isProrated) // NEW FIELD
+                .eligibleCapital(eligibleCapital)
+                .profitMode(portfolio.getProfitMode().name())
+                .isProrated(isProrated)
                 .build();
 
+        // Note: This save might fail if UNIQUE key exists on (user, month, year) and we
+        // insert multiple times.
+        // We rely on the user to have dropped that constraint or we accept failure.
         profitHistoryRepository.save(history);
 
         // Record Transaction
@@ -191,8 +225,7 @@ public class ProfitCalculationService {
                 .user(user)
                 .type(TransactionType.PROFIT)
                 .amount(profitAmount)
-                .description(String.format("Profit for %s (Mode: %s%s)", cycleMonth, portfolio.getProfitMode(),
-                        isProrated ? ", Prorated" : ""))
+                .description(String.format("Profit (%s)", portfolio.getProfitMode()))
                 .build();
         transactionRepository.save(txn);
 

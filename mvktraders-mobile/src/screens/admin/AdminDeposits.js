@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useRef } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, ActivityIndicator, RefreshControl, Modal, Alert, Dimensions, Platform } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, ActivityIndicator, RefreshControl, Modal, Alert, Dimensions, Platform, KeyboardAvoidingView, TouchableWithoutFeedback, Keyboard } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { useTheme } from '../../context/ThemeContext';
@@ -9,7 +9,7 @@ import {
     ArrowLeft, Search, X, Check, XCircle,
     Clock, Calendar, User, CreditCard,
     FileText, Hash, ChevronRight, AlertCircle,
-    Copy, Filter
+    Copy, Filter, Info
 } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -34,6 +34,29 @@ export default function AdminDeposits({ navigation }) {
     const [rejectionReason, setRejectionReason] = useState('');
     const [showRejectionInput, setShowRejectionInput] = useState(false);
 
+    // Premium Action Modal State
+    const [actionModalVisible, setActionModalVisible] = useState(false);
+    const [actionConfig, setActionConfig] = useState({
+        title: '',
+        message: '',
+        icon: 'Info',
+        type: 'info', // 'success', 'warning', 'error', 'info'
+        confirmLabel: 'Proceed',
+        onConfirm: () => { }
+    });
+
+    const triggerActionModal = (config) => {
+        setActionConfig({
+            title: config.title || 'Update',
+            message: config.message || '',
+            icon: config.icon || 'Info',
+            type: config.type || 'info',
+            confirmLabel: config.confirmLabel || 'OK',
+            onConfirm: config.onConfirm || (() => setActionModalVisible(false))
+        });
+        setActionModalVisible(true);
+    };
+
     const loadRequests = async () => {
         try {
             const data = await adminService.getAllDepositRequests();
@@ -57,11 +80,31 @@ export default function AdminDeposits({ navigation }) {
         setProcessing(true);
         try {
             await adminService.approveDepositRequest(id, 'Approved by admin');
-            Alert.alert('Success', 'Deposit request approved successfully');
+
+            setTimeout(() => {
+                triggerActionModal({
+                    title: 'Deposit Approved',
+                    message: `The funds have been verified and processed for this user account.`,
+                    icon: 'Check',
+                    type: 'success',
+                    confirmLabel: 'Done',
+                    onConfirm: () => setActionModalVisible(false)
+                });
+            }, 500);
+
             setSelectedRequest(null);
             loadRequests();
         } catch (error) {
-            Alert.alert('Error', error.response?.data?.message || 'Failed to approve request');
+            const errorMsg = error.response?.data?.message || 'Failed to approve request';
+            setTimeout(() => {
+                triggerActionModal({
+                    title: 'Approval Failed',
+                    message: errorMsg,
+                    icon: 'X',
+                    type: 'error',
+                    confirmLabel: 'Close'
+                });
+            }, 500);
         } finally {
             setProcessing(false);
         }
@@ -69,19 +112,45 @@ export default function AdminDeposits({ navigation }) {
 
     const handleReject = async (id) => {
         if (!rejectionReason.trim()) {
-            Alert.alert('Error', 'Please provide a reason for rejection');
+            triggerActionModal({
+                title: 'Missing Context',
+                message: 'Please provide a valid reason for declining this deposit request.',
+                icon: 'AlertCircle',
+                type: 'warning',
+                confirmLabel: 'I Will'
+            });
             return;
         }
         setProcessing(true);
         try {
             await adminService.rejectDepositRequest(id, rejectionReason);
-            Alert.alert('Success', 'Deposit request rejected');
+
+            setTimeout(() => {
+                triggerActionModal({
+                    title: 'Request Declined',
+                    message: 'The deposit entry has been rejected successfully.',
+                    icon: 'XCircle',
+                    type: 'info',
+                    confirmLabel: 'Close',
+                    onConfirm: () => setActionModalVisible(false)
+                });
+            }, 500);
+
             setSelectedRequest(null);
             setShowRejectionInput(false);
             setRejectionReason('');
             loadRequests();
         } catch (error) {
-            Alert.alert('Error', error.response?.data?.message || 'Failed to reject request');
+            const errorMsg = error.response?.data?.message || 'Failed to reject request';
+            setTimeout(() => {
+                triggerActionModal({
+                    title: 'Rejection Failed',
+                    message: errorMsg,
+                    icon: 'X',
+                    type: 'error',
+                    confirmLabel: 'Retry'
+                });
+            }, 500);
         } finally {
             setProcessing(false);
         }
@@ -256,154 +325,227 @@ export default function AdminDeposits({ navigation }) {
 
             {/* Enhanced Detail Popup Modal */}
             <Modal transparent visible={!!selectedRequest} animationType="fade" onRequestClose={() => setSelectedRequest(null)}>
-                <View style={styles.modalOverlay}>
-                    <View style={styles.modalContainer}>
-                        {selectedRequest && (
-                            <>
+                <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+                    <KeyboardAvoidingView
+                        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                        style={{ flex: 1 }}
+                    >
+                        <View style={styles.modalOverlay}>
+                            <View style={styles.modalContainer}>
+                                {selectedRequest && (
+                                    <>
+                                        <LinearGradient
+                                            colors={
+                                                selectedRequest.status === 'PENDING' ? [theme.warning + '20', theme.cardBg] :
+                                                    selectedRequest.status === 'APPROVED' ? [theme.success + '20', theme.cardBg] :
+                                                        [theme.error + '20', theme.cardBg]
+                                            }
+                                            style={styles.modalHeader}
+                                        >
+                                            <View style={styles.modalHeaderTop}>
+                                                <Text style={styles.modalSubtitle}>Deposit Details</Text>
+                                                <TouchableOpacity style={styles.modalCloseBtn} onPress={() => setSelectedRequest(null)}>
+                                                    <X size={20} color={theme.textPrimary} />
+                                                </TouchableOpacity>
+                                            </View>
+
+                                            <View style={styles.profileSection}>
+                                                <View style={styles.avatarPlaceholder}>
+                                                    <User size={32} color={theme.primary} />
+                                                </View>
+                                                <View style={styles.profileInfo}>
+                                                    <Text
+                                                        style={styles.modalClientName}
+                                                        numberOfLines={1}
+                                                        adjustsFontSizeToFit={true}
+                                                        minimumFontScale={0.7}
+                                                    >
+                                                        {selectedRequest.userName || 'Unknown Client'}
+                                                    </Text>
+                                                    <View style={styles.modalIdRow}>
+                                                        <Text style={styles.modalIdLabel}>USER ID:</Text>
+                                                        <Text style={styles.modalIdValue}>{selectedRequest.userIdString}</Text>
+                                                        <TouchableOpacity style={styles.copyBtn}><Copy size={12} color={theme.textSecondary} /></TouchableOpacity>
+                                                    </View>
+                                                </View>
+                                            </View>
+                                        </LinearGradient>
+
+                                        <View style={styles.modalBody}>
+                                            <View style={styles.amountShowcase}>
+                                                <Text style={styles.amountLabel}>Requested Amount</Text>
+                                                <Text style={styles.amountValueMain}>{formatCurrency(selectedRequest.amount)}</Text>
+                                                <View style={[styles.statusTag, { backgroundColor: selectedRequest.status === 'PENDING' ? theme.warningBg : selectedRequest.status === 'APPROVED' ? theme.successBg : theme.errorBg }]}>
+                                                    <Text style={[styles.statusTagText, { color: selectedRequest.status === 'PENDING' ? theme.warning : selectedRequest.status === 'APPROVED' ? theme.success : theme.error }]}>
+                                                        {selectedRequest.status}
+                                                    </Text>
+                                                </View>
+                                            </View>
+
+                                            <View style={styles.detailsGrid}>
+                                                <View style={styles.detailsItem}>
+                                                    <Calendar size={18} color={theme.primary} />
+                                                    <View style={styles.detailsItemContent}>
+                                                        <Text style={styles.detailsItemLabel}>Created Date</Text>
+                                                        <Text style={styles.detailsItemValue}>{new Date(selectedRequest.createdAt).toLocaleDateString()}</Text>
+                                                    </View>
+                                                </View>
+                                                <View style={styles.detailsItem}>
+                                                    <Clock size={18} color={theme.primary} />
+                                                    <View style={styles.detailsItemContent}>
+                                                        <Text style={styles.detailsItemLabel}>Created Time</Text>
+                                                        <Text style={styles.detailsItemValue}>{new Date(selectedRequest.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
+                                                    </View>
+                                                </View>
+                                            </View>
+
+                                            {selectedRequest.status !== 'PENDING' && (
+                                                <View style={[styles.detailsGrid, { marginTop: -10 }]}>
+                                                    <View style={styles.detailsItem}>
+                                                        <Calendar size={18} color={selectedRequest.status === 'APPROVED' ? theme.success : theme.error} />
+                                                        <View style={styles.detailsItemContent}>
+                                                            <Text style={styles.detailsItemLabel}>{selectedRequest.status === 'APPROVED' ? 'Approved' : 'Rejected'} Date</Text>
+                                                            <Text style={styles.detailsItemValue}>{new Date(selectedRequest.updatedAt || selectedRequest.createdAt).toLocaleDateString()}</Text>
+                                                        </View>
+                                                    </View>
+                                                    <View style={styles.detailsItem}>
+                                                        <Clock size={18} color={selectedRequest.status === 'APPROVED' ? theme.success : theme.error} />
+                                                        <View style={styles.detailsItemContent}>
+                                                            <Text style={styles.detailsItemLabel}>{selectedRequest.status === 'APPROVED' ? 'Approved' : 'Rejected'} Time</Text>
+                                                            <Text style={styles.detailsItemValue}>{new Date(selectedRequest.updatedAt || selectedRequest.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
+                                                        </View>
+                                                    </View>
+                                                </View>
+                                            )}
+
+                                            <View style={styles.modalNoteBox}>
+                                                <View style={styles.noteBoxHeader}>
+                                                    <FileText size={16} color={theme.textSecondary} />
+                                                    <Text style={styles.noteBoxTitle}>Client Message</Text>
+                                                </View>
+                                                <Text style={styles.noteBoxContent}>"{selectedRequest.userNote || 'Client Initiated'}"</Text>
+                                            </View>
+
+                                            <View style={styles.modalFooter}>
+                                                {selectedRequest.status === 'PENDING' && !showRejectionInput && (
+                                                    <View style={styles.actionGrid}>
+                                                        <TouchableOpacity
+                                                            style={[styles.primaryActionBtn, { backgroundColor: theme.error }]}
+                                                            onPress={() => setShowRejectionInput(true)}
+                                                        >
+                                                            <XCircle size={18} color="#fff" />
+                                                            <Text style={[styles.actionBtnLabel, { color: '#fff' }]}>Reject</Text>
+                                                        </TouchableOpacity>
+
+                                                        <TouchableOpacity
+                                                            style={[styles.primaryActionBtn, { backgroundColor: theme.success }]}
+                                                            onPress={() => handleApprove(selectedRequest.id)}
+                                                            disabled={processing}
+                                                        >
+                                                            {processing ? <ActivityIndicator size="small" color="#fff" /> : (
+                                                                <>
+                                                                    <Check size={18} color="#fff" />
+                                                                    <Text style={[styles.actionBtnLabel, { color: '#fff' }]}>Approve</Text>
+                                                                </>
+                                                            )}
+                                                        </TouchableOpacity>
+                                                    </View>
+                                                )}
+
+                                                {showRejectionInput && (
+                                                    <View style={styles.enhancedRejection}>
+                                                        <Text style={styles.rejectionLabel}>REJECTION REASON</Text>
+                                                        <TextInput
+                                                            style={styles.rejectionTextarea}
+                                                            placeholder="Detail why this request is being denied..."
+                                                            placeholderTextColor={theme.textSecondary}
+                                                            value={rejectionReason}
+                                                            onChangeText={setRejectionReason}
+                                                            multiline
+                                                            autoFocus
+                                                        />
+                                                        <View style={styles.rejectionGrid}>
+                                                            <TouchableOpacity style={styles.rejectionCancel} onPress={() => setShowRejectionInput(false)}>
+                                                                <Text style={styles.rejectionCancelText}>Go Back</Text>
+                                                            </TouchableOpacity>
+                                                            <TouchableOpacity style={styles.rejectionConfirm} onPress={() => handleReject(selectedRequest.id)}>
+                                                                <Text style={styles.rejectionConfirmText}>Confirm Rejection</Text>
+                                                            </TouchableOpacity>
+                                                        </View>
+                                                    </View>
+                                                )}
+                                            </View>
+                                        </View>
+                                    </>
+                                )}
+                            </View>
+                        </View>
+                    </KeyboardAvoidingView>
+                </TouchableWithoutFeedback>
+            </Modal>
+
+            {/* Premium Action Modal Implementation */}
+            <Modal
+                transparent
+                visible={actionModalVisible}
+                animationType="fade"
+                onRequestClose={() => setActionModalVisible(false)}
+            >
+                <View style={styles.actionModalOverlay}>
+                    <View style={styles.actionCard}>
+                        <View style={[
+                            styles.eliteIconBox,
+                            {
+                                backgroundColor:
+                                    actionConfig.type === 'success' ? '#10b98115' :
+                                        actionConfig.type === 'error' ? '#ef444415' :
+                                            actionConfig.type === 'warning' ? '#f59e0b15' : '#4f46e515'
+                            }
+                        ]}>
+                            {actionConfig.icon === 'Check' && <Check size={36} color="#10b981" />}
+                            {actionConfig.icon === 'X' && <X size={36} color="#ef4444" />}
+                            {actionConfig.icon === 'XCircle' && <XCircle size={36} color="#ef4444" />}
+                            {actionConfig.icon === 'AlertCircle' && <AlertCircle size={36} color="#f59e0b" />}
+                            {actionConfig.icon === 'Info' && <Info size={36} color="#4f46e5" />}
+                        </View>
+
+                        <Text style={styles.actionTitle}>{actionConfig.title}</Text>
+                        <Text style={styles.actionMessage}>{actionConfig.message}</Text>
+
+                        <View style={styles.actionBtnGroup}>
+                            {actionConfig.type === 'warning' && (
+                                <TouchableOpacity
+                                    style={styles.actionCancelBtn}
+                                    onPress={() => setActionModalVisible(false)}
+                                >
+                                    <Text style={styles.actionCancelText}>Cancel</Text>
+                                </TouchableOpacity>
+                            )}
+
+                            <TouchableOpacity
+                                style={[
+                                    styles.actionConfirmBtn,
+                                    {
+                                        backgroundColor:
+                                            actionConfig.type === 'success' ? '#10b981' :
+                                                actionConfig.type === 'error' ? '#ef4444' :
+                                                    actionConfig.type === 'warning' ? '#f59e0b' : '#4f46e5'
+                                    }
+                                ]}
+                                onPress={actionConfig.onConfirm}
+                            >
                                 <LinearGradient
                                     colors={
-                                        selectedRequest.status === 'PENDING' ? [theme.warning + '20', theme.cardBg] :
-                                            selectedRequest.status === 'APPROVED' ? [theme.success + '20', theme.cardBg] :
-                                                [theme.error + '20', theme.cardBg]
+                                        actionConfig.type === 'success' ? ['#10b981', '#059669'] :
+                                            actionConfig.type === 'error' ? ['#ef4444', '#dc2626'] :
+                                                actionConfig.type === 'warning' ? ['#f59e0b', '#d97706'] : ['#4f46e5', '#4338ca']
                                     }
-                                    style={styles.modalHeader}
+                                    style={styles.actionConfirmGradient}
                                 >
-                                    <View style={styles.modalHeaderTop}>
-                                        <Text style={styles.modalSubtitle}>Deposit Details</Text>
-                                        <TouchableOpacity style={styles.modalCloseBtn} onPress={() => setSelectedRequest(null)}>
-                                            <X size={20} color={theme.textPrimary} />
-                                        </TouchableOpacity>
-                                    </View>
-
-                                    <View style={styles.profileSection}>
-                                        <View style={styles.avatarPlaceholder}>
-                                            <User size={32} color={theme.primary} />
-                                        </View>
-                                        <View style={styles.profileInfo}>
-                                            <Text
-                                                style={styles.modalClientName}
-                                                numberOfLines={1}
-                                                adjustsFontSizeToFit={true}
-                                                minimumFontScale={0.7}
-                                            >
-                                                {selectedRequest.userName || 'Unknown Client'}
-                                            </Text>
-                                            <View style={styles.modalIdRow}>
-                                                <Text style={styles.modalIdLabel}>USER ID:</Text>
-                                                <Text style={styles.modalIdValue}>{selectedRequest.userIdString}</Text>
-                                                <TouchableOpacity style={styles.copyBtn}><Copy size={12} color={theme.textSecondary} /></TouchableOpacity>
-                                            </View>
-                                        </View>
-                                    </View>
+                                    <Text style={styles.actionConfirmText}>{actionConfig.confirmLabel}</Text>
                                 </LinearGradient>
-
-                                <View style={styles.modalBody}>
-                                    <View style={styles.amountShowcase}>
-                                        <Text style={styles.amountLabel}>Requested Amount</Text>
-                                        <Text style={styles.amountValueMain}>{formatCurrency(selectedRequest.amount)}</Text>
-                                        <View style={[styles.statusTag, { backgroundColor: selectedRequest.status === 'PENDING' ? theme.warningBg : selectedRequest.status === 'APPROVED' ? theme.successBg : theme.errorBg }]}>
-                                            <Text style={[styles.statusTagText, { color: selectedRequest.status === 'PENDING' ? theme.warning : selectedRequest.status === 'APPROVED' ? theme.success : theme.error }]}>
-                                                {selectedRequest.status}
-                                            </Text>
-                                        </View>
-                                    </View>
-
-                                    <View style={styles.detailsGrid}>
-                                        <View style={styles.detailsItem}>
-                                            <Calendar size={18} color={theme.primary} />
-                                            <View style={styles.detailsItemContent}>
-                                                <Text style={styles.detailsItemLabel}>Created Date</Text>
-                                                <Text style={styles.detailsItemValue}>{new Date(selectedRequest.createdAt).toLocaleDateString()}</Text>
-                                            </View>
-                                        </View>
-                                        <View style={styles.detailsItem}>
-                                            <Clock size={18} color={theme.primary} />
-                                            <View style={styles.detailsItemContent}>
-                                                <Text style={styles.detailsItemLabel}>Created Time</Text>
-                                                <Text style={styles.detailsItemValue}>{new Date(selectedRequest.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
-                                            </View>
-                                        </View>
-                                    </View>
-
-                                    {selectedRequest.status !== 'PENDING' && (
-                                        <View style={[styles.detailsGrid, { marginTop: -10 }]}>
-                                            <View style={styles.detailsItem}>
-                                                <Calendar size={18} color={selectedRequest.status === 'APPROVED' ? theme.success : theme.error} />
-                                                <View style={styles.detailsItemContent}>
-                                                    <Text style={styles.detailsItemLabel}>{selectedRequest.status === 'APPROVED' ? 'Approved' : 'Rejected'} Date</Text>
-                                                    <Text style={styles.detailsItemValue}>{new Date(selectedRequest.updatedAt || selectedRequest.createdAt).toLocaleDateString()}</Text>
-                                                </View>
-                                            </View>
-                                            <View style={styles.detailsItem}>
-                                                <Clock size={18} color={selectedRequest.status === 'APPROVED' ? theme.success : theme.error} />
-                                                <View style={styles.detailsItemContent}>
-                                                    <Text style={styles.detailsItemLabel}>{selectedRequest.status === 'APPROVED' ? 'Approved' : 'Rejected'} Time</Text>
-                                                    <Text style={styles.detailsItemValue}>{new Date(selectedRequest.updatedAt || selectedRequest.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
-                                                </View>
-                                            </View>
-                                        </View>
-                                    )}
-
-                                    <View style={styles.modalNoteBox}>
-                                        <View style={styles.noteBoxHeader}>
-                                            <FileText size={16} color={theme.textSecondary} />
-                                            <Text style={styles.noteBoxTitle}>Client Message</Text>
-                                        </View>
-                                        <Text style={styles.noteBoxContent}>"{selectedRequest.userNote || 'Client Initiated'}"</Text>
-                                    </View>
-
-                                    <View style={styles.modalFooter}>
-                                        {selectedRequest.status === 'PENDING' && !showRejectionInput && (
-                                            <View style={styles.actionGrid}>
-                                                <TouchableOpacity
-                                                    style={[styles.primaryActionBtn, { backgroundColor: theme.error }]}
-                                                    onPress={() => setShowRejectionInput(true)}
-                                                >
-                                                    <XCircle size={18} color="#fff" />
-                                                    <Text style={[styles.actionBtnLabel, { color: '#fff' }]}>Reject</Text>
-                                                </TouchableOpacity>
-
-                                                <TouchableOpacity
-                                                    style={[styles.primaryActionBtn, { backgroundColor: theme.success }]}
-                                                    onPress={() => handleApprove(selectedRequest.id)}
-                                                    disabled={processing}
-                                                >
-                                                    {processing ? <ActivityIndicator size="small" color="#fff" /> : (
-                                                        <>
-                                                            <Check size={18} color="#fff" />
-                                                            <Text style={[styles.actionBtnLabel, { color: '#fff' }]}>Approve</Text>
-                                                        </>
-                                                    )}
-                                                </TouchableOpacity>
-                                            </View>
-                                        )}
-
-                                        {showRejectionInput && (
-                                            <View style={styles.enhancedRejection}>
-                                                <Text style={styles.rejectionLabel}>REJECTION REASON</Text>
-                                                <TextInput
-                                                    style={styles.rejectionTextarea}
-                                                    placeholder="Detail why this request is being denied..."
-                                                    placeholderTextColor={theme.textSecondary}
-                                                    value={rejectionReason}
-                                                    onChangeText={setRejectionReason}
-                                                    multiline
-                                                    autoFocus
-                                                />
-                                                <View style={styles.rejectionGrid}>
-                                                    <TouchableOpacity style={styles.rejectionCancel} onPress={() => setShowRejectionInput(false)}>
-                                                        <Text style={styles.rejectionCancelText}>Go Back</Text>
-                                                    </TouchableOpacity>
-                                                    <TouchableOpacity style={styles.rejectionConfirm} onPress={() => handleReject(selectedRequest.id)}>
-                                                        <Text style={styles.rejectionConfirmText}>Confirm Rejection</Text>
-                                                    </TouchableOpacity>
-                                                </View>
-                                            </View>
-                                        )}
-                                    </View>
-                                </View>
-                            </>
-                        )}
+                            </TouchableOpacity>
+                        </View>
                     </View>
                 </View>
             </Modal>
@@ -459,7 +601,7 @@ const getStyles = (theme) => StyleSheet.create({
     emptyText: { color: theme.textSecondary, fontWeight: '600', fontSize: 16 },
 
     // Enhanced Modal
-    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'flex-start', alignItems: 'center', padding: 20, paddingTop: 80 },
+    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center', padding: 20 },
     modalContainer: { backgroundColor: theme.cardBg, borderRadius: 32, width: '100%', maxWidth: 450, overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.3, shadowRadius: 20, elevation: 10, borderWidth: 1, borderColor: theme.cardBorder },
     modalHeader: { padding: 24, paddingBottom: 30 },
     modalHeaderTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
@@ -506,5 +648,18 @@ const getStyles = (theme) => StyleSheet.create({
     rejectionCancel: { flex: 1, height: 48, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.cardBorder + '20' },
     rejectionCancelText: { color: theme.textPrimary, fontWeight: '700', fontSize: 14 },
     rejectionConfirm: { flex: 2, height: 48, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.error },
-    rejectionConfirmText: { color: '#fff', fontWeight: '800', fontSize: 14 }
+    rejectionConfirmText: { color: '#fff', fontWeight: '800', fontSize: 14 },
+
+    // Premium Modal Styles
+    actionModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+    actionCard: { width: '100%', maxWidth: 340, backgroundColor: theme.cardBg, borderRadius: 32, padding: 28, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.35, shadowRadius: 24, elevation: 18, borderWidth: 1, borderColor: theme.cardBorder },
+    eliteIconBox: { width: 72, height: 72, borderRadius: 22, justifyContent: 'center', alignItems: 'center', marginBottom: 20 },
+    actionTitle: { fontSize: 22, fontWeight: '800', color: theme.textPrimary, marginBottom: 10, textAlign: 'center' },
+    actionMessage: { fontSize: 14, color: theme.textSecondary, textAlign: 'center', lineHeight: 22, marginBottom: 30, opacity: 0.8 },
+    actionBtnGroup: { flexDirection: 'row', gap: 12, width: '100%' },
+    actionCancelBtn: { flex: 1, height: 56, borderRadius: 18, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.mode === 'dark' ? 'rgba(255,255,255,0.05)' : '#f3f4f6', borderWidth: 1, borderColor: theme.cardBorder },
+    actionCancelText: { color: theme.textSecondary, fontWeight: '700', fontSize: 15 },
+    actionConfirmBtn: { flex: 2, height: 56, borderRadius: 18, overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 4 },
+    actionConfirmGradient: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+    actionConfirmText: { color: '#fff', fontWeight: '800', fontSize: 15, letterSpacing: 0.3 }
 });

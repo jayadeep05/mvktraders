@@ -225,14 +225,14 @@ const ClientHistoryModal = ({ show, onClose, client }) => {
                 }))];
             }
 
-            // Process Payouts/Transactions
+            // Process Payouts
             if (transactionsRes.status === 'fulfilled' && transactionsRes.value.data) {
                 // Transactions endpoint is always specific to the user (both Admin and Mediator versions)
-                const payouts = transactionsRes.value.data.filter(t => t.type === 'PAYOUT');
-                merged = [...merged, ...payouts.map(p => ({
-                    ...p,
+                const relevantTrans = transactionsRes.value.data.filter(t => t.type === 'PAYOUT');
+                merged = [...merged, ...relevantTrans.map(t => ({
+                    ...t,
                     type: 'PAYOUT',
-                    date: p.date || p.timestamp || p.createdAt,
+                    date: t.date || t.timestamp || t.createdAt,
                     status: 'COMPLETED'
                 }))];
             }
@@ -469,7 +469,7 @@ const ClientHistoryModal = ({ show, onClose, client }) => {
                                         <div style={{ flex: 1, minWidth: 0 }}>
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                                 <span style={{ fontSize: '14px', fontWeight: '700', color: '#fff' }}>
-                                                    {isDeposit ? 'Funds Added' : isPayout ? 'Profit Payout' : 'Withdrawal'}
+                                                    {isDeposit ? 'Funds Added' : isPayout ? 'Profit Payout' : item.type === 'PROFIT' ? 'Monthly Profit' : 'Withdrawal'}
                                                 </span>
                                                 <span style={{
                                                     fontSize: '9px',

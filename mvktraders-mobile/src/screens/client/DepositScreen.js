@@ -6,6 +6,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { ArrowLeft, CheckCircle, Wallet, TrendingUp } from 'lucide-react-native';
 import { clientService } from '../../api/client';
 import { usePortfolio } from '../../context/PortfolioContext';
+import { formatCurrency } from '../../utils/formatters';
 
 export default function DepositScreen({ navigation, route }) {
     const { theme, isDark } = useTheme();
@@ -71,14 +72,14 @@ export default function DepositScreen({ navigation, route }) {
                 <View style={styles.infoCardValue}>
                     {hasChanged ? (
                         <View>
-                            <Text style={styles.oldValue}>₹{Math.round(current).toLocaleString('en-IN')}</Text>
+                            <Text style={styles.oldValue}>{formatCurrency(Math.round(current))}</Text>
                             <Text style={[styles.newValue, { color: highlightColor }]}>
-                                ₹{Math.round(projected).toLocaleString('en-IN')}
+                                {formatCurrency(Math.round(projected))}
                             </Text>
                         </View>
                     ) : (
                         <Text style={[styles.staticValue, amountNum > 0 && { color: highlightColor }]}>
-                            ₹{Math.round(current).toLocaleString('en-IN')}
+                            {formatCurrency(Math.round(current))}
                         </Text>
                     )}
                 </View>
@@ -202,8 +203,8 @@ export default function DepositScreen({ navigation, route }) {
                         </View>
                         <Text style={styles.modalTitle}>Confirm Deposit</Text>
                         <Text style={styles.modalText}>
-                            Confirm deposit of <Text style={styles.modalHighlight}>₹{amountNum.toLocaleString('en-IN')}</Text>?
-                            {'\n\n'}Your capital becomes <Text style={[styles.modalHighlight, { color: '#3b82f6' }]}>₹{newInvested.toLocaleString('en-IN')}</Text> with <Text style={[styles.modalHighlight, { color: '#4ade80' }]}>₹{Math.round(nextMonthProfit).toLocaleString('en-IN')}</Text> monthly profit.
+                            Confirm deposit of <Text style={styles.modalHighlight}>{formatCurrency(amountNum)}</Text>?
+                            {'\n\n'}Your capital becomes <Text style={[styles.modalHighlight, { color: '#3b82f6' }]}>{formatCurrency(newInvested)}</Text> with <Text style={[styles.modalHighlight, { color: '#4ade80' }]}>{formatCurrency(Math.round(nextMonthProfit))}</Text> monthly profit.
                         </Text>
                         <View style={styles.modalButtons}>
                             <TouchableOpacity

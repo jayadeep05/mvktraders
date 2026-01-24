@@ -12,7 +12,11 @@ import {
     TextInput,
     Image,
     Platform,
-    StatusBar
+    StatusBar,
+    KeyboardAvoidingView,
+    TouchableWithoutFeedback,
+    Keyboard,
+    Clipboard
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
@@ -40,9 +44,13 @@ import {
     XCircle,
     CheckCircle,
     Clock,
+    Copy,
     FileText,
     Filter,
-    ChevronDown
+    ChevronDown,
+    Upload,
+    ArrowRight,
+    Info
 } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -64,6 +72,17 @@ export default function AdminClientDetails({ route, navigation }) {
     const [payoutDate, setPayoutDate] = useState('');
     const [payoutImage, setPayoutImage] = useState(null);
     const [payoutLoading, setPayoutLoading] = useState(false);
+    const [imageViewerVisible, setImageViewerVisible] = useState(false);
+    const [copied, setCopied] = useState(false);
+
+    const handleCopyMessage = () => {
+        if (payoutAmount) {
+            const msg = generatePayoutMessage(payoutAmount);
+            Clipboard.setString(msg);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        }
+    };
 
     // Fund Management Modal (Add Funds / Withdraw)
     const [fundModalVisible, setFundModalVisible] = useState(false);
@@ -80,29 +99,71 @@ export default function AdminClientDetails({ route, navigation }) {
     const [profitEffectiveDate, setProfitEffectiveDate] = useState(null);
     const [savingProfit, setSavingProfit] = useState(false);
 
+    // Action Modal State
+    const [actionModalVisible, setActionModalVisible] = useState(false);
+    const [actionConfig, setActionConfig] = useState({
+        title: '',
+        message: '',
+        icon: 'AlertTriangle',
+        type: 'info',
+        confirmLabel: 'Confirm',
+        cancelLabel: 'Cancel',
+        onConfirm: () => { }
+    });
+
+    const triggerActionModal = (config) => {
+        setActionConfig(prev => ({
+            ...prev,
+            cancelLabel: 'Cancel', // Default fallback
+            ...config
+        }));
+        setActionModalVisible(true);
+    };
+
     const handleSaveProfitConfig = async () => {
-        Alert.alert('Confirm Update', 'This will affect future profit calculations only. Past profits will not be changed.', [
-            { text: 'Cancel', style: 'cancel' },
-            {
-                text: 'Confirm Save', onPress: async () => {
-                    try {
-                        setSavingProfit(true);
-                        await adminService.updateClientProfitConfig(clientId, {
-                            profitMode,
-                            profitPercentage: parseFloat(profitPercentage) || 0,
-                            isProrationEnabled,
-                            allowEarlyExit
+        triggerActionModal({
+            title: 'Confirm Update',
+            message: 'This will affect future profit calculations only. Past profits will not be changed.',
+            icon: 'TrendingUp',
+            type: 'warning',
+            confirmLabel: 'Save Changes',
+            onConfirm: async () => {
+                try {
+                    setSavingProfit(true);
+                    await adminService.updateClientProfitConfig(clientId, {
+                        profitMode,
+                        profitPercentage: parseFloat(profitPercentage) || 0,
+                        isProrationEnabled,
+                        allowEarlyExit
+                    });
+
+                    setActionModalVisible(false);
+                    setTimeout(() => {
+                        triggerActionModal({
+                            title: 'Success!',
+                            message: 'Profit configuration updated successfully.',
+                            icon: 'CheckCircle',
+                            type: 'success',
+                            confirmLabel: 'Done'
                         });
-                        Alert.alert('Success', 'Profit configuration updated.');
-                        loadData(false);
-                    } catch (e) {
-                        const errorMsg = e.response?.data?.message || e.message || 'Update failed';
-                        Alert.alert('Error', errorMsg);
-                    }
-                    finally { setSavingProfit(false); }
+                    }, 500);
+                    loadData(false);
+                } catch (e) {
+                    const errorMsg = e.response?.data?.message || e.message || 'Update failed';
+                    setActionModalVisible(false);
+                    setTimeout(() => {
+                        triggerActionModal({
+                            title: 'Error',
+                            message: errorMsg,
+                            icon: 'XCircle',
+                            type: 'error',
+                            confirmLabel: 'Retry'
+                        });
+                    }, 500);
                 }
+                finally { setSavingProfit(false); }
             }
-        ]);
+        });
     };
 
     // Filter
@@ -122,7 +183,13 @@ export default function AdminClientDetails({ route, navigation }) {
                 adminService.getClientTransactions(clientId)
             ]);
             setPortfolio(portRes);
-            setTransactions(transRes);
+            // Sort transactions by date descending
+            const sortedTrans = (transRes || []).sort((a, b) => {
+                const dateA = new Date(a.date || a.createdAt || a.timestamp);
+                const dateB = new Date(b.date || b.createdAt || b.timestamp);
+                return dateB - dateA;
+            });
+            setTransactions(sortedTrans);
 
             // Set Profit Config
             setProfitMode(portRes.profitMode || 'FIXED');
@@ -150,101 +217,124 @@ export default function AdminClientDetails({ route, navigation }) {
     }, []);
 
     const handleImpersonate = async () => {
-        Alert.alert(
-            'Impersonate User',
-            `You are about to log in as ${clientName}. This will switch your session immediately.`,
-            [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                    text: 'Proceed',
-                    style: 'default',
-                    onPress: async () => {
-                        try {
-                            const res = await adminService.impersonateUser(clientId);
-                            const success = await setSession(res.access_token, res.refresh_token);
-                            if (success) {
-                                // navigation.replace('ClientDashboard'); // Navigate if needed, but context update might trigger re-render
-                            } else {
-                                Alert.alert('Error', 'Failed to establish session');
-                            }
-                        } catch (e) {
-                            console.error("Impersonation failed", e);
-                            Alert.alert('Error', 'Impersonation failed');
-                        }
+        triggerActionModal({
+            title: 'Impersonate User',
+            message: `You are about to log in as ${clientName}. This will switch your session immediately to the client perspective.`,
+            icon: 'UserCheck',
+            type: 'info',
+            confirmLabel: 'Proceed to Login',
+            onConfirm: async () => {
+                try {
+                    setActionModalVisible(false);
+                    const res = await adminService.impersonateUser(clientId);
+                    const success = await setSession(res.access_token, res.refresh_token);
+                    if (!success) {
+                        triggerActionModal({
+                            title: 'Error',
+                            message: 'Failed to establish session',
+                            icon: 'XCircle',
+                            type: 'error'
+                        });
                     }
+                } catch (e) {
+                    console.error("Impersonation failed", e);
+                    triggerActionModal({
+                        title: 'Error',
+                        message: 'Impersonation failed',
+                        icon: 'XCircle',
+                        type: 'error'
+                    });
                 }
-            ]
-        );
+            }
+        });
     };
 
     const handleDeactivate = async () => {
-        Alert.alert(
-            'Deactivate User',
-            `Are you sure you want to deactivate ${clientName}'s account? They will lose access immediately, but their data will be preserved.`,
-            [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                    text: 'Deactivate Account',
-                    style: 'destructive',
-                    onPress: async () => {
-                        try {
-                            await adminService.deleteUser(clientId);
-                            Alert.alert('Success', 'User deactivated successfully');
-                            loadData(false);
-                        } catch (e) {
-                            const errorMsg = e.response?.data?.message || e.message || 'Unknown error';
-                            Alert.alert('Error', 'Failed to deactivate user: ' + errorMsg);
-                        }
-                    }
+        triggerActionModal({
+            title: 'Deactivate User',
+            message: `Are you sure you want to deactivate ${clientName}'s account? They will lose access immediately, but their data will be preserved.`,
+            icon: 'XCircle',
+            type: 'destructive',
+            confirmLabel: 'Deactivate Account',
+            onConfirm: async () => {
+                try {
+                    setActionModalVisible(false);
+                    await adminService.deleteUser(clientId);
+                    setTimeout(() => {
+                        triggerActionModal({
+                            title: 'Success',
+                            message: 'User deactivated successfully.',
+                            icon: 'CheckCircle',
+                            type: 'success'
+                        });
+                    }, 500);
+                    loadData(false);
+                } catch (e) {
+                    triggerActionModal({
+                        title: 'Error',
+                        message: e.response?.data?.message || e.message,
+                        icon: 'XCircle',
+                        type: 'error'
+                    });
                 }
-            ]
-        );
+            }
+        });
     };
 
     const handleReactivate = async () => {
-        Alert.alert(
-            'Activate Account',
-            `Are you sure you want to reactivate ${clientName}'s account?`,
-            [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                    text: 'Activate',
-                    style: 'default',
-                    onPress: async () => {
-                        try {
-                            await adminService.reactivateUser(clientId);
-                            Alert.alert('Success', 'Account reactivated successfully');
-                            loadData(false);
-                        } catch (e) {
-                            Alert.alert('Error', 'Failed to reactivate user');
-                        }
-                    }
+        triggerActionModal({
+            title: 'Activate Account',
+            message: `Are you sure you want to reactivate ${clientName}'s account and restore their access?`,
+            icon: 'UserPlus',
+            type: 'success',
+            confirmLabel: 'Activate Now',
+            onConfirm: async () => {
+                try {
+                    setActionModalVisible(false);
+                    await adminService.reactivateUser(clientId);
+                    setTimeout(() => {
+                        triggerActionModal({
+                            title: 'Success',
+                            message: 'Account reactivated successfully.',
+                            icon: 'CheckCircle',
+                            type: 'success'
+                        });
+                    }, 500);
+                    loadData(false);
+                } catch (e) {
+                    triggerActionModal({
+                        title: 'Error',
+                        message: 'Failed to reactivate user',
+                        icon: 'XCircle',
+                        type: 'error'
+                    });
                 }
-            ]
-        );
+            }
+        });
     };
 
     const handlePermanentDelete = async () => {
-        Alert.alert(
-            'Delete Permanently',
-            `This will permanently remove ${clientName} and all their records from the database. This action cannot be undone.`,
-            [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                    text: 'Delete Permanently',
-                    style: 'destructive',
-                    onPress: async () => {
-                        try {
-                            await adminService.deleteUserPermanently(clientId);
-                            Alert.alert('Success', 'User deleted permanently');
-                            navigation.goBack();
-                        } catch (e) {
-                            Alert.alert('Error', 'Failed to delete user permanently');
-                        }
-                    }
+        triggerActionModal({
+            title: 'Delete Permanently',
+            message: `This will permanently remove ${clientName} and all records. This action is irreversible and final.`,
+            icon: 'Trash',
+            type: 'destructive',
+            confirmLabel: 'Permanent Delete',
+            onConfirm: async () => {
+                try {
+                    setActionModalVisible(false);
+                    await adminService.deleteUserPermanently(clientId);
+                    navigation.goBack();
+                } catch (e) {
+                    triggerActionModal({
+                        title: 'Error',
+                        message: 'Failed to delete user',
+                        icon: 'XCircle',
+                        type: 'error'
+                    });
                 }
-            ]
-        );
+            }
+        });
     };
 
     const pickImage = async () => {
@@ -259,6 +349,60 @@ export default function AdminClientDetails({ route, navigation }) {
         }
     };
 
+    const generatePayoutMessage = (amount) => {
+        if (!portfolio || !portfolio.user) return '';
+
+        const payoutAmt = parseFloat(amount) || 0;
+        const user = portfolio.user;
+        const availableProfit = portfolio.availableProfit || 0;
+        const totalInvested = portfolio.totalInvested || 0;
+        const profitPercentage = portfolio.profitPercentage || 0;
+
+        let newTotalInvested = totalInvested;
+        let newAvailableProfit = availableProfit;
+
+        if (availableProfit >= payoutAmt) {
+            newAvailableProfit = availableProfit - payoutAmt;
+        } else {
+            const remainder = payoutAmt - availableProfit;
+            newAvailableProfit = 0;
+            newTotalInvested = totalInvested - remainder;
+        }
+
+        const formatNum = (num) => Math.floor(num).toLocaleString('en-IN');
+
+        const now = new Date();
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+
+        const formatDateUpper = (d) => d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase();
+
+        const dateString = formatDateUpper(now);
+        const profitPeriod = `${formatDateUpper(startOfMonth)} TO ${formatDateUpper(endOfMonth)}`;
+
+        return `USER ID : ${user.userId || user.id}
+CLIENT NAME : ${user.name}
+MOBILE NUMBER : ${user.mobile || 'N/A'}
+
+PREVIOUS INVESTMENT : ₹${formatNum(totalInvested)}
+
+MONTHLY RETURN RATE 📈 : ${profitPercentage}%
+
+PAYOUT TRANSACTION ID : TXN_ID_PLACEHOLDER
+-----------------------------------
+
+PROFIT PAID FOR : ${profitPeriod}
+
+Remaining Profit : ₹${formatNum(newAvailableProfit)}
+AMOUNT PAID : ₹${formatNum(payoutAmt)}
+DATE : ${dateString}
+
+CURRENT INVESTMENT : ₹${formatNum(newTotalInvested)}
+FROM ${dateString} ONWARDS
+
+Your future profits will be calculated based on the current active investment.`;
+    };
+
     const handlePayoutSubmit = async () => {
         if (!payoutAmount || !payoutImage) {
             Alert.alert('Error', 'Please provide amount and screenshot');
@@ -270,7 +414,9 @@ export default function AdminClientDetails({ route, navigation }) {
             const formData = new FormData();
             formData.append('userId', clientId);
             formData.append('amount', payoutAmount);
-            formData.append('message', `Payout for ${payoutDate || new Date().toLocaleDateString()}`);
+            // Use the generated message instead of simple text
+            const generatedMessage = generatePayoutMessage(payoutAmount);
+            formData.append('message', generatedMessage);
 
             const uri = Platform.OS === 'android' ? payoutImage.uri : payoutImage.uri.replace('file://', '');
             const filename = uri.split('/').pop();
@@ -280,14 +426,33 @@ export default function AdminClientDetails({ route, navigation }) {
             formData.append('screenshot', { uri, name: filename, type });
 
             await adminService.createPayout(formData);
-            Alert.alert('Success', 'Payout recorded successfully');
+
+            setTimeout(() => {
+                triggerActionModal({
+                    title: 'Payout Recorded',
+                    message: `A payout of ₹${parseFloat(payoutAmount).toLocaleString('en-IN')} has been logged.`,
+                    icon: 'CheckCircle',
+                    type: 'success',
+                    confirmLabel: 'Excellent'
+                });
+            }, 500);
+
             setPayoutVisible(false);
             setPayoutAmount('');
             setPayoutDate('');
             setPayoutImage(null);
             loadData(false);
         } catch (error) {
-            Alert.alert('Error', error.response?.data?.message || 'Payout failed');
+            const errorMsg = error.response?.data?.message || 'Payout failed';
+            setTimeout(() => {
+                triggerActionModal({
+                    title: 'Payout Error',
+                    message: errorMsg,
+                    icon: 'XCircle',
+                    type: 'error',
+                    confirmLabel: 'Retry'
+                });
+            }, 500);
         } finally {
             setPayoutLoading(false);
         }
@@ -306,13 +471,31 @@ export default function AdminClientDetails({ route, navigation }) {
                 type: fundType,
                 note: fundNote || `Admin ${fundType.toLowerCase()} adjustment`
             });
-            Alert.alert('Success', `${fundType === 'DEPOSIT' ? 'Deposit' : 'Withdrawal'} successful`);
+
+            setTimeout(() => {
+                triggerActionModal({
+                    title: 'Adjustment Successful',
+                    message: `${fundType === 'DEPOSIT' ? 'Deposit' : 'Withdrawal'} of ₹${parseFloat(fundAmount).toLocaleString('en-IN')} synchronized.`,
+                    icon: 'CheckCircle',
+                    type: 'success',
+                    confirmLabel: 'Done'
+                });
+            }, 500);
+
             setFundModalVisible(false);
             setFundAmount('');
             setFundNote('');
             loadData(false);
         } catch (error) {
-            Alert.alert('Error', error.response?.data?.message || 'Transaction failed');
+            const errorMsg = error.response?.data?.message || 'Transaction failed';
+            setTimeout(() => {
+                triggerActionModal({
+                    title: 'Transaction Error',
+                    message: errorMsg,
+                    icon: 'XCircle',
+                    type: 'error'
+                });
+            }, 500);
         } finally {
             setFundLoading(false);
         }
@@ -341,7 +524,7 @@ export default function AdminClientDetails({ route, navigation }) {
                     <ArrowLeft size={24} color={theme.textPrimary} />
                 </TouchableOpacity>
                 <View style={styles.headerTitleContainer}>
-                    <Text style={styles.headerTitle}>{clientName}</Text>
+                    <Text style={styles.headerTitle} numberOfLines={1}>{clientName}</Text>
                     <View style={styles.statusDot} />
                 </View>
                 <View style={styles.headerRightActions}>
@@ -444,100 +627,114 @@ export default function AdminClientDetails({ route, navigation }) {
 
 
 
-                {/* Profit & Compounding Configuration */}
+                {/* Profit & Compounding Configuration - IMPROVED & FIXED UI */}
                 <View style={styles.sectionHeader}>
                     <View style={styles.sectionTitleRow}>
-                        <TrendingUp size={18} color={theme.primary} />
-                        <Text style={styles.sectionTitle}>Profit & Compounding</Text>
+                        <View style={styles.sectionIconCircle}>
+                            <TrendingUp size={16} color="#fff" />
+                        </View>
+                        <Text style={styles.sectionTitle}>Profit Settings</Text>
                     </View>
                     {profitEffectiveDate && (
-                        <Text style={[styles.effectiveDateText, { color: theme.textSecondary }]}>Effective: {profitEffectiveDate}</Text>
+                        <View style={styles.dateBadge}>
+                            <Clock size={10} color={theme.textSecondary} />
+                            <Text style={styles.dateBadgeText}>{profitEffectiveDate}</Text>
+                        </View>
                     )}
                 </View>
 
-                <View style={styles.statsCard}>
-                    <View style={styles.configRow}>
-                        <View style={{ flex: 1 }}>
-                            <Text style={styles.configLabel}>Profit Mode</Text>
-                            <Text style={styles.configDesc}>Determines how future profits are applied</Text>
+                <View style={styles.profitCard}>
+                    {/* Header Row: Mode Select */}
+                    <View style={styles.profitHeaderRow}>
+                        <View>
+                            <Text style={styles.pLabel}>PROFIT MODE</Text>
+                            <Text style={styles.pSub}>How profit is applied</Text>
                         </View>
-                        <View style={styles.modeToggleContainer}>
+                        <View style={styles.modeSwitch}>
                             <TouchableOpacity
-                                style={[styles.modeBtn, profitMode === 'FIXED' && { backgroundColor: theme.primary }]}
+                                style={[styles.switchOption, profitMode === 'FIXED' && styles.switchOptionActive]}
                                 onPress={() => setProfitMode('FIXED')}
                             >
-                                <Text style={[styles.modeBtnText, profitMode === 'FIXED' && { color: '#fff' }]}>Fixed</Text>
+                                <Text style={[styles.switchText, profitMode === 'FIXED' && styles.switchTextActive]}>Fixed</Text>
                             </TouchableOpacity>
                             <TouchableOpacity
-                                style={[styles.modeBtn, profitMode === 'COMPOUNDING' && { backgroundColor: theme.primary }]}
+                                style={[styles.switchOption, profitMode === 'COMPOUNDING' && styles.switchOptionActive]}
                                 onPress={() => setProfitMode('COMPOUNDING')}
                             >
-                                <Text style={[styles.modeBtnText, profitMode === 'COMPOUNDING' && { color: '#fff' }]}>Compound</Text>
+                                <Text style={[styles.switchText, profitMode === 'COMPOUNDING' && styles.switchTextActive]}>Compound</Text>
                             </TouchableOpacity>
                         </View>
                     </View>
 
-                    <View style={styles.divider} />
+                    <View style={styles.pDivider} />
 
-                    <View style={styles.configRow}>
-                        <View style={{ flex: 1 }}>
-                            <Text style={styles.configLabel}>Monthly Profit %</Text>
-                            <Text style={styles.configDesc}>Percentage applied for next cycle</Text>
+                    {/* Percentage Input */}
+                    <View style={styles.pRow}>
+                        <View>
+                            <Text style={styles.pLabel}>MONTHLY RETURN</Text>
+                            <Text style={styles.pSub}>Profit percentage for next cycle</Text>
                         </View>
-                        <View style={styles.rateInputWrapper}>
+                        <View style={styles.percentInputBox}>
                             <TextInput
-                                style={[styles.rateInput, { color: theme.textPrimary }]}
+                                style={styles.percentInput}
                                 value={profitPercentage}
                                 onChangeText={setProfitPercentage}
                                 keyboardType="decimal-pad"
                                 placeholder="0.0"
-                                placeholderTextColor={theme.textSecondary}
+                                placeholderTextColor={theme.textSecondary + '50'}
                             />
-                            <Text style={[styles.percentSymbol, { color: theme.textSecondary }]}>%</Text>
+                            <Text style={styles.percentSuffix}>%</Text>
                         </View>
                     </View>
 
-                    <View style={styles.divider} />
+                    <View style={styles.pDivider} />
 
-                    <View style={styles.configRow}>
+                    {/* Toggles */}
+                    <View style={styles.pRow}>
                         <View style={{ flex: 1 }}>
-                            <Text style={styles.configLabel}>First Month Partial Profit</Text>
-                            <Text style={styles.configDesc}>Apply profit for partial first month</Text>
+                            <Text style={styles.pLabel}>PRORATION</Text>
+                            <Text style={styles.pSub}>Partial profit for first month</Text>
                         </View>
                         <TouchableOpacity
+                            activeOpacity={0.9}
                             onPress={() => setIsProrationEnabled(!isProrationEnabled)}
-                            style={[styles.toggleBtn, isProrationEnabled && { backgroundColor: theme.success }, { backgroundColor: isProrationEnabled ? theme.success : theme.cardBorder }]}
+                            style={[styles.toggleTrack, isProrationEnabled ? { backgroundColor: theme.success } : { backgroundColor: theme.cardBorder }]}
                         >
-                            <View style={[styles.toggleCircle, isProrationEnabled && { transform: [{ translateX: 14 }] }, { backgroundColor: '#fff' }]} />
+                            <View style={[styles.toggleKnob, isProrationEnabled ? { transform: [{ translateX: 20 }] } : { transform: [{ translateX: 2 }] }]} />
                         </TouchableOpacity>
                     </View>
 
-                    <View style={styles.divider} />
+                    <View style={styles.pDivider} />
 
-                    <View style={styles.configRow}>
+                    <View style={styles.pRow}>
                         <View style={{ flex: 1 }}>
-                            <Text style={styles.configLabel}>Exit Permission</Text>
-                            <Text style={styles.configDesc}>Allow early exit for this client</Text>
+                            <Text style={styles.pLabel}>EARLY EXIT</Text>
+                            <Text style={styles.pSub}>Allow client to withdraw capital</Text>
                         </View>
                         <TouchableOpacity
+                            activeOpacity={0.9}
                             onPress={() => setAllowEarlyExit(!allowEarlyExit)}
-                            style={[styles.toggleBtn, allowEarlyExit && { backgroundColor: theme.success }, { backgroundColor: allowEarlyExit ? theme.success : theme.cardBorder }]}
+                            style={[styles.toggleTrack, allowEarlyExit ? { backgroundColor: theme.primary } : { backgroundColor: theme.cardBorder }]}
                         >
-                            <View style={[styles.toggleCircle, allowEarlyExit && { transform: [{ translateX: 14 }] }, { backgroundColor: '#fff' }]} />
+                            <View style={[styles.toggleKnob, allowEarlyExit ? { transform: [{ translateX: 20 }] } : { transform: [{ translateX: 2 }] }]} />
                         </TouchableOpacity>
                     </View>
 
+                    {/* Save Button */}
                     <TouchableOpacity
-                        style={[styles.saveConfigBtn, { backgroundColor: theme.primary, marginTop: 16 }]}
+                        style={styles.saveBtn}
                         onPress={handleSaveProfitConfig}
                         disabled={savingProfit}
                     >
                         {savingProfit ? <ActivityIndicator size="small" color="#fff" /> : (
-                            <Text style={styles.saveConfigText}>Save Configuration</Text>
+                            <Text style={styles.saveBtnText}>Update Configuration</Text>
                         )}
                     </TouchableOpacity>
-                    <Text style={[styles.configFooterText, { color: theme.textSecondary }]}>Changes will apply from the next profit calculation cycle.</Text>
+
+                    <Text style={styles.pFooter}>Changes apply from the next calculation cycle.</Text>
                 </View>
+
+
 
                 {/* Primary Actions */}
                 <View style={styles.mainActionsContainer}>
@@ -713,202 +910,338 @@ export default function AdminClientDetails({ route, navigation }) {
                 <View style={{ height: 40 }} />
             </ScrollView>
 
-            {/* Payout Modal */}
-            <Modal visible={payoutVisible} transparent animationType="slide" onRequestClose={() => setPayoutVisible(false)}>
-                <View style={styles.modalOverlay}>
-                    <View style={styles.fundModalContainer}>
-                        <View style={styles.fundModalHeader}>
-                            <View>
-                                <Text style={styles.fundModalSubtitle}>OFFICIAL PAYOUT</Text>
-                                <Text style={styles.fundModalTitle}>Record Profit Payout</Text>
+            {/* Payout Modal - Premium UI */}
+            <Modal visible={payoutVisible} transparent animationType="fade" onRequestClose={() => setPayoutVisible(false)}>
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    style={styles.modalOverlay}
+                >
+                    <TouchableOpacity
+                        style={StyleSheet.absoluteFill}
+                        activeOpacity={1}
+                        onPress={() => setPayoutVisible(false)}
+                    />
+
+                    <View style={styles.payoutPremiumCard}>
+                        {/* Elite Header */}
+                        <View style={styles.premiumHeaderBar}>
+                            <View style={styles.premiumTitleMeta}>
+                                <Text style={styles.premiumOverline}>SETTLEMENT PORTAL</Text>
+                                <Text style={styles.premiumHeadline}>Process Payout</Text>
                             </View>
-                            <TouchableOpacity onPress={() => setPayoutVisible(false)} style={styles.modalCloseBtn}>
-                                <X size={20} color={theme.textPrimary} />
+                            <TouchableOpacity
+                                onPress={() => setPayoutVisible(false)}
+                                style={styles.premiumCircularX}
+                            >
+                                <X size={18} color={theme.textPrimary} />
                             </TouchableOpacity>
                         </View>
 
-                        <ScrollView style={styles.fundModalBody} showsVerticalScrollIndicator={false}>
-                            {/* Massive Amount Input */}
-                            <View style={styles.centeredAmountContainer}>
-                                <Text style={styles.amountLabel}>PAYOUT AMOUNT</Text>
-                                <View style={styles.massiveInputWrapper}>
-                                    <Text style={styles.massiveCurrencySymbol}>₹</Text>
+                        <ScrollView
+                            style={styles.premiumContainerBody}
+                            showsVerticalScrollIndicator={false}
+                            contentContainerStyle={{ paddingBottom: 32 }}
+                        >
+                            {/* Elegantly Proportioned Amount Input */}
+                            <View style={styles.premiumControlGroup}>
+                                <Text style={styles.premiumFieldLabel}>Amount for Disbursement</Text>
+                                <View style={styles.ultraCompactInput}>
+                                    <Text style={styles.premiumInputCompactSymbol}>₹</Text>
                                     <TextInput
-                                        style={styles.massiveAmountInput}
+                                        style={styles.premiumInputCompact}
                                         placeholder="0"
-                                        placeholderTextColor={theme.textSecondary + '50'}
-                                        keyboardType="decimal-pad"
+                                        placeholderTextColor={theme.textSecondary + '40'}
+                                        keyboardType="numeric"
                                         value={payoutAmount}
                                         onChangeText={setPayoutAmount}
                                         autoFocus
+                                        selectionColor={theme.primary}
                                     />
                                 </View>
                             </View>
 
-                            <View style={styles.modalInputGroup}>
-                                <Text style={styles.modalInputLabel}>MONTH / REMARK</Text>
-                                <View style={styles.modalInputWrapper}>
-                                    <Calendar size={18} color={theme.textSecondary} />
-                                    <TextInput
-                                        style={styles.modalTextInput}
-                                        placeholder="e.g. October 2024 Profit"
-                                        placeholderTextColor={theme.textSecondary}
-                                        value={payoutDate}
-                                        onChangeText={setPayoutDate}
-                                    />
-                                </View>
-                            </View>
-
-                            <View style={styles.modalInputGroup}>
-                                <Text style={styles.modalInputLabel}>TRANSACTION PROOF</Text>
-                                <TouchableOpacity style={styles.imageUploader} onPress={pickImage} activeOpacity={0.7}>
-                                    {payoutImage ? (
-                                        <Image source={{ uri: payoutImage.uri }} style={styles.uploadPreview} resizeMode="cover" />
-                                    ) : (
-                                        <View style={styles.uploadPlaceholder}>
-                                            <View style={styles.uploadIconCircle}>
-                                                <ImageIcon size={24} color={theme.primary} />
+                            {/* Minimalist Proof Upload Area */}
+                            <View style={styles.premiumControlGroup}>
+                                <Text style={styles.premiumFieldLabel}>Transaction Verification</Text>
+                                {payoutImage ? (
+                                    <View style={styles.premiumValidationBox}>
+                                        <TouchableOpacity
+                                            activeOpacity={0.9}
+                                            onPress={() => setImageViewerVisible(true)}
+                                            style={styles.premiumHeroThumb}
+                                        >
+                                            <Image source={{ uri: payoutImage.uri }} style={styles.premiumHeroImg} />
+                                            <View style={styles.premiumHeroBlur}>
+                                                <Text style={styles.premiumHeroTag}>View</Text>
                                             </View>
-                                            <Text style={styles.uploadTitle}>Upload Screenshot</Text>
-                                            <Text style={styles.uploadSub}>PNG, JPG or JPEG allowed</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            onPress={pickImage}
+                                            style={styles.premiumResetBtn}
+                                        >
+                                            <Upload size={14} color={theme.primary} />
+                                            <Text style={styles.premiumResetText}>Update Proof</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                ) : (
+                                    <TouchableOpacity
+                                        activeOpacity={0.7}
+                                        onPress={pickImage}
+                                        style={styles.premiumSurfaceAction}
+                                    >
+                                        <View style={styles.premiumSurfaceIcon}>
+                                            <Plus size={20} color={theme.primary} />
                                         </View>
-                                    )}
-                                    {payoutImage && (
-                                        <View style={styles.uploadBadge}>
-                                            <Text style={styles.uploadBadgeText}>Tap to change</Text>
+                                        <View>
+                                            <Text style={styles.premiumSurfaceTitle}>Attach Proof</Text>
+                                            <Text style={styles.premiumSurfaceDetail}>JPEG, PNG supported</Text>
                                         </View>
-                                    )}
-                                </TouchableOpacity>
+                                    </TouchableOpacity>
+                                )}
                             </View>
 
+                            {/* Refined Context Draft */}
+                            <View style={styles.premiumControlGroup}>
+                                <View style={styles.premiumRowHeader}>
+                                    <Text style={[styles.premiumFieldLabel, { marginBottom: 0 }]}>Settlement Narrative</Text>
+                                    <View style={styles.premiumBadgeAuto}>
+                                        <Text style={styles.premiumBadgeAutoText}>AUTO</Text>
+                                    </View>
+                                </View>
+                                <View style={styles.premiumNarrativeStatic}>
+                                    {payoutAmount && (
+                                        <TouchableOpacity
+                                            onPress={handleCopyMessage}
+                                            style={styles.absoluteCopyBtn}
+                                            activeOpacity={0.7}
+                                        >
+                                            {copied ? <CheckCircle size={14} color={theme.success} /> : <Copy size={14} color={theme.primary} />}
+                                        </TouchableOpacity>
+                                    )}
+                                    {payoutAmount ? (
+                                        <Text style={styles.narrativeTypeface}>
+                                            {generatePayoutMessage(payoutAmount)}
+                                        </Text>
+                                    ) : (
+                                        <View style={styles.narrativeEmpty}>
+                                            <Text style={styles.narrativePlaceholder}>Message details will appear once amount is entered...</Text>
+                                        </View>
+                                    )}
+                                </View>
+                            </View>
+
+                        </ScrollView>
+
+                        {/* Commanding Call to Action - Docked at Bottom */}
+                        <View style={styles.premiumFooter}>
                             <TouchableOpacity
-                                style={[styles.payoutSubmitBtn, (payoutLoading || !payoutAmount || !payoutImage) && { opacity: 0.5 }]}
+                                activeOpacity={0.8}
+                                style={[styles.premiumMasterBtn, (!payoutAmount || !payoutImage) && { opacity: 0.5 }]}
                                 onPress={handlePayoutSubmit}
                                 disabled={payoutLoading || !payoutAmount || !payoutImage}
                             >
                                 <LinearGradient
-                                    colors={[theme.primary, theme.primary + 'CC']}
-                                    style={styles.submitGradient}
+                                    colors={(!payoutAmount || !payoutImage) ? [theme.cardBorder, theme.cardBorder] : [theme.primary, theme.primary + 'DD']}
+                                    style={styles.premiumMasterGradient}
                                 >
-                                    {payoutLoading ? <ActivityIndicator color="#fff" /> : (
-                                        <>
-                                            <CheckCircle size={20} color="#fff" />
-                                            <Text style={styles.submitText}>Submit Payout Record</Text>
-                                        </>
+                                    {payoutLoading ? (
+                                        <ActivityIndicator color="#fff" />
+                                    ) : (
+                                        <View style={styles.premiumMasterContent}>
+                                            <Text style={styles.premiumMasterText}>Submit</Text>
+                                            <ArrowRight size={18} color="#fff" />
+                                        </View>
                                     )}
                                 </LinearGradient>
                             </TouchableOpacity>
-                            <View style={{ height: 20 }} />
-                        </ScrollView>
+                        </View>
                     </View>
+                </KeyboardAvoidingView>
+            </Modal>
+
+            {/* Image Viewer Modal */}
+            <Modal visible={imageViewerVisible} transparent animationType="fade" onRequestClose={() => setImageViewerVisible(false)}>
+                <View style={styles.imageViewerOverlay}>
+                    <TouchableOpacity
+                        style={styles.imageViewerClose}
+                        onPress={() => setImageViewerVisible(false)}
+                    >
+                        <X size={28} color="#fff" />
+                    </TouchableOpacity>
+                    {payoutImage && (
+                        <Image
+                            source={{ uri: payoutImage.uri }}
+                            style={styles.fullscreenImage}
+                            resizeMode="contain"
+                        />
+                    )}
                 </View>
             </Modal>
 
             {/* Fund Modal (Add/Withdraw) */}
             <Modal visible={fundModalVisible} transparent animationType="slide" onRequestClose={() => setFundModalVisible(false)}>
-                <View style={styles.modalOverlay}>
-                    <View style={styles.fundModalContainer}>
-                        <View style={styles.fundModalHeader}>
-                            <View>
-                                <Text style={styles.fundModalSubtitle}>{fundType === 'DEPOSIT' ? 'ADD CAPITAL' : 'WITHDRAWAL'}</Text>
-                                <Text style={styles.fundModalTitle}>{fundType === 'DEPOSIT' ? 'Increase Portfolio' : 'Decrease Portfolio'}</Text>
-                            </View>
-                            <TouchableOpacity onPress={() => setFundModalVisible(false)} style={styles.modalCloseBtn}>
-                                <X size={20} color={theme.textPrimary} />
-                            </TouchableOpacity>
-                        </View>
-
-                        <ScrollView style={styles.fundModalBody} showsVerticalScrollIndicator={false}>
-                            {/* Alert Box */}
-                            <View style={[styles.fundAlertBox, {
-                                backgroundColor: fundType === 'DEPOSIT' ? theme.success + '08' : theme.error + '08',
-                                borderLeftColor: fundType === 'DEPOSIT' ? theme.success : theme.error
-                            }]}>
-                                <Shield size={16} color={fundType === 'DEPOSIT' ? theme.success : theme.error} />
-                                <Text style={[styles.fundAlertText, { color: fundType === 'DEPOSIT' ? theme.success : theme.error }]}>
-                                    {fundType === 'DEPOSIT'
-                                        ? 'This will increase the client\'s invested capital and total portfolio value.'
-                                        : 'This will decrease available profit first, then capital if needed.'}
-                                </Text>
-                            </View>
-
-                            {/* Massive Amount Input */}
-                            <View style={styles.centeredAmountContainer}>
-                                <Text style={styles.amountLabel}>ENTER AMOUNT</Text>
-                                <View style={styles.massiveInputWrapper}>
-                                    <Text style={styles.massiveCurrencySymbol}>₹</Text>
-                                    <TextInput
-                                        style={styles.massiveAmountInput}
-                                        placeholder="0"
-                                        placeholderTextColor={theme.textSecondary + '50'}
-                                        keyboardType="decimal-pad"
-                                        value={fundAmount}
-                                        onChangeText={setFundAmount}
-                                        autoFocus
-                                    />
+                <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+                    <KeyboardAvoidingView
+                        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                        style={styles.modalOverlay}
+                    >
+                        <View style={styles.fundModalContainer}>
+                            <View style={styles.fundModalHeader}>
+                                <View>
+                                    <Text style={styles.fundModalSubtitle}>{fundType === 'DEPOSIT' ? 'ADD CAPITAL' : 'WITHDRAWAL'}</Text>
+                                    <Text style={styles.fundModalTitle}>{fundType === 'DEPOSIT' ? 'Increase Portfolio' : 'Decrease Portfolio'}</Text>
                                 </View>
+                                <TouchableOpacity onPress={() => setFundModalVisible(false)} style={styles.modalCloseBtn}>
+                                    <X size={20} color={theme.textPrimary} />
+                                </TouchableOpacity>
                             </View>
 
-                            <View style={styles.modalInputGroup}>
-                                <Text style={styles.modalInputLabel}>ADMIN NOTE / REMARK</Text>
-                                <View style={styles.modalInputWrapper}>
-                                    <FileText size={18} color={theme.textSecondary} />
-                                    <TextInput
-                                        style={styles.modalTextInput}
-                                        placeholder="Reason for this adjustment..."
-                                        placeholderTextColor={theme.textSecondary}
-                                        value={fundNote}
-                                        onChangeText={setFundNote}
-                                    />
-                                </View>
-                            </View>
-
-                            <View style={styles.impactPreview}>
-                                <View style={styles.impactItem}>
-                                    <View style={styles.impactLabelRow}>
-                                        <Wallet size={14} color={theme.textSecondary} />
-                                        <Text style={styles.impactLabel}>Current Balance</Text>
-                                    </View>
-                                    <Text style={styles.impactValue}>{formatCurrency(portfolio?.totalValue || 0)}</Text>
-                                </View>
-                                <ChevronRight size={16} color={theme.cardBorder} />
-                                <View style={[styles.impactItem, { alignItems: 'flex-end' }]}>
-                                    <View style={styles.impactLabelRow}>
-                                        <Text style={styles.impactLabel}>Projected</Text>
-                                        <TrendingUp size={14} color={fundType === 'DEPOSIT' ? theme.success : theme.error} />
-                                    </View>
-                                    <Text style={[styles.impactValue, { color: fundType === 'DEPOSIT' ? theme.success : theme.error }]}>
-                                        {formatCurrency((portfolio?.totalValue || 0) + (parseFloat(fundAmount || 0) * (fundType === 'DEPOSIT' ? 1 : -1)))}
+                            <ScrollView style={styles.fundModalBody} showsVerticalScrollIndicator={false}>
+                                {/* Alert Box */}
+                                <View style={[styles.fundAlertBox, {
+                                    backgroundColor: fundType === 'DEPOSIT' ? theme.success + '08' : theme.error + '08',
+                                    borderLeftColor: fundType === 'DEPOSIT' ? theme.success : theme.error
+                                }]}>
+                                    <Shield size={16} color={fundType === 'DEPOSIT' ? theme.success : theme.error} />
+                                    <Text style={[styles.fundAlertText, { color: fundType === 'DEPOSIT' ? theme.success : theme.error }]}>
+                                        {fundType === 'DEPOSIT'
+                                            ? 'This will increase the client\'s invested capital and total portfolio value.'
+                                            : 'This will decrease available profit first, then capital if needed.'}
                                     </Text>
                                 </View>
-                            </View>
 
-                            <TouchableOpacity
-                                style={[styles.payoutSubmitBtn, (fundLoading || !fundAmount) && { opacity: 0.5 }]}
-                                onPress={handleFundSubmit}
-                                disabled={fundLoading || !fundAmount}
-                            >
-                                <LinearGradient
-                                    colors={fundType === 'DEPOSIT' ? [theme.success, theme.success + 'CC'] : [theme.error, theme.error + 'CC']}
-                                    style={styles.submitGradient}
+                                {/* Massive Amount Input */}
+                                <View style={styles.centeredAmountContainer}>
+                                    <Text style={styles.amountLabel}>ENTER AMOUNT</Text>
+                                    <View style={styles.massiveInputWrapper}>
+                                        <Text style={styles.massiveCurrencySymbol}>₹</Text>
+                                        <TextInput
+                                            style={styles.massiveAmountInput}
+                                            placeholder="0"
+                                            placeholderTextColor={theme.textSecondary + '50'}
+                                            keyboardType="decimal-pad"
+                                            value={fundAmount}
+                                            onChangeText={setFundAmount}
+                                            autoFocus
+                                        />
+                                    </View>
+                                </View>
+
+                                <View style={styles.modalInputGroup}>
+                                    <Text style={styles.modalInputLabel}>ADMIN NOTE / REMARK</Text>
+                                    <View style={styles.modalInputWrapper}>
+                                        <FileText size={18} color={theme.textSecondary} />
+                                        <TextInput
+                                            style={styles.modalTextInput}
+                                            placeholder="Reason for this adjustment..."
+                                            placeholderTextColor={theme.textSecondary}
+                                            value={fundNote}
+                                            onChangeText={setFundNote}
+                                        />
+                                    </View>
+                                </View>
+
+                                <View style={styles.impactPreview}>
+                                    <View style={styles.impactItem}>
+                                        <View style={styles.impactLabelRow}>
+                                            <Wallet size={14} color={theme.textSecondary} />
+                                            <Text style={styles.impactLabel}>Current Balance</Text>
+                                        </View>
+                                        <Text style={styles.impactValue}>{formatCurrency(portfolio?.totalValue || 0)}</Text>
+                                    </View>
+                                    <ChevronRight size={16} color={theme.cardBorder} />
+                                    <View style={[styles.impactItem, { alignItems: 'flex-end' }]}>
+                                        <View style={styles.impactLabelRow}>
+                                            <Text style={styles.impactLabel}>Projected</Text>
+                                            <TrendingUp size={14} color={fundType === 'DEPOSIT' ? theme.success : theme.error} />
+                                        </View>
+                                        <Text style={[styles.impactValue, { color: fundType === 'DEPOSIT' ? theme.success : theme.error }]}>
+                                            {formatCurrency((portfolio?.totalValue || 0) + (parseFloat(fundAmount || 0) * (fundType === 'DEPOSIT' ? 1 : -1)))}
+                                        </Text>
+                                    </View>
+                                </View>
+
+                                <TouchableOpacity
+                                    style={[styles.payoutSubmitBtn, (fundLoading || !fundAmount) && { opacity: 0.5 }]}
+                                    onPress={handleFundSubmit}
+                                    disabled={fundLoading || !fundAmount}
                                 >
-                                    {fundLoading ? <ActivityIndicator color="#fff" /> : (
-                                        <>
-                                            <CheckCircle size={20} color="#fff" />
-                                            <Text style={styles.submitText}>
-                                                {fundType === 'DEPOSIT' ? 'Confirm Addition' : 'Confirm Withdrawal'}
-                                            </Text>
-                                        </>
-                                    )}
-                                </LinearGradient>
+                                    <LinearGradient
+                                        colors={fundType === 'DEPOSIT' ? [theme.success, theme.success + 'CC'] : [theme.error, theme.error + 'CC']}
+                                        style={styles.submitGradient}
+                                    >
+                                        {fundLoading ? <ActivityIndicator color="#fff" /> : (
+                                            <>
+                                                <CheckCircle size={20} color="#fff" />
+                                                <Text style={styles.submitText}>
+                                                    {fundType === 'DEPOSIT' ? 'Confirm Addition' : 'Confirm Withdrawal'}
+                                                </Text>
+                                            </>
+                                        )}
+                                    </LinearGradient>
+                                </TouchableOpacity>
+                                <View style={{ height: 20 }} />
+                            </ScrollView>
+                        </View>
+                    </KeyboardAvoidingView>
+                </TouchableWithoutFeedback>
+            </Modal >
+
+
+
+            {/* Action Modal - Premium Experience */}
+            <Modal
+                visible={actionModalVisible}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setActionModalVisible(false)}
+            >
+                <View style={styles.actionModalOverlay}>
+                    <TouchableOpacity
+                        style={StyleSheet.absoluteFill}
+                        activeOpacity={1}
+                        onPress={() => setActionModalVisible(false)}
+                    />
+                    <View style={styles.actionCard}>
+                        <View style={[styles.actionIconBoxLarge, {
+                            backgroundColor: actionConfig.type === 'destructive' ? theme.error + '15' :
+                                actionConfig.type === 'success' ? theme.success + '15' :
+                                    actionConfig.type === 'warning' ? theme.warning + '15' : theme.primary + '15'
+                        }]}>
+                            {actionConfig.icon === 'UserCheck' && <UserCheck size={32} color={theme.primary} />}
+                            {actionConfig.icon === 'XCircle' && <XCircle size={32} color={theme.error} />}
+                            {actionConfig.icon === 'UserPlus' && <UserPlus size={32} color={theme.success} />}
+                            {actionConfig.icon === 'Trash' && <Trash size={32} color={theme.error} />}
+                            {actionConfig.icon === 'TrendingUp' && <TrendingUp size={32} color={theme.warning} />}
+                        </View>
+
+                        <Text style={styles.actionTitle}>{actionConfig.title}</Text>
+                        <Text style={styles.actionMessage}>{actionConfig.message}</Text>
+
+                        <View style={styles.actionBtnRow}>
+                            <TouchableOpacity
+                                style={styles.actionCancelBtn}
+                                onPress={() => setActionModalVisible(false)}
+                            >
+                                <Text style={styles.actionCancelText}>{actionConfig.cancelLabel || 'Cancel'}</Text>
                             </TouchableOpacity>
-                            <View style={{ height: 20 }} />
-                        </ScrollView>
+                            <TouchableOpacity
+                                style={[styles.actionConfirmBtn, {
+                                    backgroundColor: actionConfig.type === 'destructive' ? theme.error :
+                                        actionConfig.type === 'success' ? theme.success :
+                                            actionConfig.type === 'warning' ? theme.warning : theme.primary
+                                }]}
+                                onPress={() => {
+                                    setActionModalVisible(false);
+                                    actionConfig.onConfirm();
+                                }}
+                            >
+                                <Text style={styles.actionConfirmText}>{actionConfig.confirmLabel}</Text>
+                            </TouchableOpacity>
+                        </View>
                     </View>
                 </View>
             </Modal>
-
-
 
         </SafeAreaView >
     );
@@ -922,14 +1255,15 @@ const getStyles = (theme, isDark) => StyleSheet.create({
     // Header
     header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 12, backgroundColor: theme.background },
     headerTitleContainer: { flex: 1, marginLeft: 12, flexDirection: 'row', alignItems: 'center', gap: 8 },
-    headerTitle: { fontSize: 20, fontWeight: '800', color: theme.textPrimary, letterSpacing: -0.5 },
-    backBtn: { padding: 4 },
-    headerRightActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-    deactivateHeaderBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: theme.error + '10', borderWidth: 1, borderColor: theme.error + '25' },
-    deactivateHeaderText: { color: theme.error, fontSize: 13, fontWeight: '700' },
-    actionIconBtn: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-    statusTag: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 },
-    statusTagText: { fontSize: 10, fontWeight: '800', textTransform: 'uppercase' },
+    headerTitle: { fontSize: 18, fontWeight: '800', color: theme.textPrimary, letterSpacing: -0.5 },
+    backBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 12, backgroundColor: theme.cardBg, borderWidth: 1, borderColor: theme.cardBorder },
+    headerRightActions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', marginLeft: 10 },
+    deactivateHeaderBtn: {
+        paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10,
+        backgroundColor: theme.error + '12', borderWidth: 1, borderColor: theme.error + '30',
+        alignItems: 'center', justifyContent: 'center', minWidth: 100
+    },
+    deactivateHeaderText: { color: theme.error, fontSize: 11, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 1 },
 
     scrollContent: { paddingHorizontal: 20, paddingTop: 10 },
 
@@ -1089,36 +1423,200 @@ const getStyles = (theme, isDark) => StyleSheet.create({
     massiveCurrencySymbol: { fontSize: 32, fontWeight: '800', color: theme.textPrimary, marginRight: 8 },
     massiveAmountInput: { fontSize: 44, fontWeight: '800', color: theme.textPrimary, textAlign: 'center', minWidth: 100 },
 
-
-    modalInputGroup: { marginBottom: 16 },
+    modalInputGroup: { marginBottom: 20 },
     modalInputLabel: { fontSize: 11, fontWeight: '800', color: theme.textSecondary, letterSpacing: 1, marginBottom: 8 },
-    modalInputWrapper: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: theme.background, borderRadius: 16, paddingHorizontal: 16, height: 50, borderWidth: 1, borderColor: theme.cardBorder },
-    modalTextInput: { flex: 1, color: theme.textPrimary, fontSize: 14, fontWeight: '600' },
+    modalInputWrapper: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.background, borderRadius: 16, height: 56, borderWidth: 1, borderColor: theme.cardBorder, paddingHorizontal: 16, gap: 12 },
+    modalTextInput: { flex: 1, fontSize: 15, fontWeight: '600', color: theme.textPrimary },
 
-    impactPreview: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderRadius: 20, backgroundColor: theme.background, borderWidth: 1, borderColor: theme.cardBorder, marginBottom: 24 },
+    impactPreview: {
+        flexDirection: 'row', alignItems: 'center', backgroundColor: theme.background,
+        padding: 16, borderRadius: 20, borderWidth: 1, borderColor: theme.cardBorder,
+        marginBottom: 24, gap: 12
+    },
     impactItem: { flex: 1 },
-    impactLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
+    impactLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
     impactLabel: { fontSize: 11, fontWeight: '700', color: theme.textSecondary },
-    impactValue: { fontSize: 17, fontWeight: '800', color: theme.textPrimary },
+    impactValue: { fontSize: 15, fontWeight: '800', color: theme.textPrimary },
 
-    payoutSubmitBtn: { height: 60, borderRadius: 18, overflow: 'hidden', shadowColor: theme.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 4 },
+    payoutSubmitBtn: { height: 56, borderRadius: 18, overflow: 'hidden', marginTop: 8 },
 
-    // Profit UI Styles
-    effectiveDateText: { fontSize: 13, fontWeight: '600' },
-    profitConfigCard: { backgroundColor: theme.cardBg, borderRadius: 24, padding: 20, borderWidth: 1, borderColor: theme.cardBorder, marginBottom: 24 },
-    configRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12 },
-    configLabel: { fontSize: 15, fontWeight: '800', color: theme.textPrimary, marginBottom: 4 },
-    configDesc: { fontSize: 13, color: theme.textSecondary, fontWeight: '500', maxWidth: 220 },
-    modeToggleContainer: { flexDirection: 'row', backgroundColor: theme.background, padding: 4, borderRadius: 12, borderWidth: 1, borderColor: theme.cardBorder },
-    modeBtn: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 },
-    modeBtnText: { fontSize: 12, fontWeight: '800', color: theme.textSecondary },
-    divider: { height: 1, backgroundColor: theme.cardBorder, marginVertical: 8 },
-    rateInputWrapper: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.background, borderWidth: 1, borderColor: theme.cardBorder, borderRadius: 12, paddingHorizontal: 12, height: 44, width: 100 },
-    rateInput: { flex: 1, fontSize: 16, fontWeight: '800', textAlign: 'right', marginRight: 4 },
-    percentSymbol: { fontSize: 14, fontWeight: '700' },
-    toggleBtn: { width: 50, height: 28, borderRadius: 14, justifyContent: 'center', paddingHorizontal: 4 },
-    toggleCircle: { width: 22, height: 22, borderRadius: 11, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: 2 },
-    saveConfigBtn: { alignItems: 'center', justifyContent: 'center', height: 50, borderRadius: 16 },
-    saveConfigText: { color: '#fff', fontSize: 16, fontWeight: '700' },
-    configFooterText: { marginTop: 16, fontSize: 12, fontWeight: '500', textAlign: 'center' }
+
+    // --- PREMIUM A-CLASS PAYOUT MODAL STYLES ---
+    payoutPremiumCard: {
+        width: '92%',
+        maxWidth: 400,
+        backgroundColor: theme.cardBg,
+        borderRadius: 36,
+        overflow: 'hidden',
+        borderWidth: 1.5,
+        borderColor: theme.cardBorder,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 12 },
+        shadowOpacity: 0.4,
+        shadowRadius: 24,
+        elevation: 16,
+        maxHeight: '85%'
+    },
+    premiumHeaderBar: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingHorizontal: 32,
+        paddingVertical: 28,
+        borderBottomWidth: 1,
+        borderBottomColor: theme.cardBorder + '60'
+    },
+    premiumTitleMeta: { flex: 1 },
+    premiumOverline: { fontSize: 9, fontWeight: '900', color: theme.primary, letterSpacing: 2.5, marginBottom: 4 },
+    premiumHeadline: { fontSize: 22, fontWeight: '800', color: theme.textPrimary, letterSpacing: -0.5 },
+    premiumCircularX: {
+        width: 36, height: 36, borderRadius: 14, backgroundColor: theme.background,
+        alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: theme.cardBorder
+    },
+
+    premiumContainerBody: { paddingHorizontal: 28, paddingTop: 28 },
+    premiumControlGroup: { marginBottom: 32 },
+    premiumFieldLabel: { fontSize: 13, fontWeight: '700', color: theme.textSecondary, marginBottom: 14, marginLeft: 2 },
+
+    premiumInputLid: {
+        flexDirection: 'row', alignItems: 'center', backgroundColor: theme.background,
+        borderRadius: 20, height: 72, borderWidth: 1.5, borderColor: theme.cardBorder,
+        paddingHorizontal: 24, shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.1, shadowRadius: 10, elevation: 4
+    },
+    ultraCompactInput: {
+        backgroundColor: theme.background,
+        borderRadius: 12, height: 48, borderWidth: 1, borderColor: theme.cardBorder,
+        paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 8
+    },
+    premiumInputCompactSymbol: { fontSize: 18, fontWeight: '800', color: theme.primary },
+    premiumInputCompact: { flex: 1, fontSize: 18, fontWeight: '700', color: theme.textPrimary },
+
+    premiumSymbolLarge: { fontSize: 24, fontWeight: '700', color: theme.primary, marginRight: 14 },
+    premiumInputText: { flex: 1, fontSize: 30, fontWeight: '800', color: theme.textPrimary, letterSpacing: -1 },
+
+    premiumSurfaceAction: {
+        flexDirection: 'row', alignItems: 'center', padding: 18, backgroundColor: theme.background,
+        borderRadius: 22, borderWidth: 1.5, borderColor: theme.cardBorder, borderStyle: 'dashed', gap: 18
+    },
+    premiumSurfaceIcon: {
+        width: 48, height: 48, borderRadius: 16, backgroundColor: theme.primary + '10',
+        alignItems: 'center', justifyContent: 'center'
+    },
+    premiumSurfaceTitle: { fontSize: 16, fontWeight: '700', color: theme.textPrimary },
+    premiumSurfaceDetail: { fontSize: 12, color: theme.textSecondary, marginTop: 2, opacity: 0.8 },
+
+    premiumValidationBox: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+    premiumHeroThumb: {
+        width: 100, height: 72, borderRadius: 18, overflow: 'hidden',
+        borderWidth: 1.5, borderColor: theme.cardBorder, position: 'relative'
+    },
+    premiumHeroImg: { width: '100%', height: '100%', resizeMode: 'cover' },
+    premiumHeroBlur: {
+        position: 'absolute', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)',
+        alignItems: 'center', justifyContent: 'center'
+    },
+    premiumHeroTag: { fontSize: 9, fontWeight: '900', color: '#fff', letterSpacing: 1.5 },
+    premiumResetBtn: {
+        flex: 1, height: 72, borderRadius: 18, backgroundColor: theme.background,
+        flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12,
+        borderWidth: 1, borderColor: theme.cardBorder
+    },
+    premiumResetText: { fontSize: 14, fontWeight: '700', color: theme.textSecondary },
+
+    premiumRowHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
+    premiumBadgeAuto: {
+        backgroundColor: theme.background, paddingHorizontal: 10, paddingVertical: 4,
+        borderRadius: 10, borderWidth: 1, borderColor: theme.cardBorder
+    },
+    premiumBadgeAutoText: { fontSize: 9, fontWeight: '900', color: theme.textSecondary, letterSpacing: 0.8 },
+    premiumNarrativeStatic: {
+        backgroundColor: isDark ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.03)',
+        borderRadius: 20, borderWidth: 1, borderColor: theme.cardBorder, padding: 16,
+        position: 'relative', minHeight: 100
+    },
+    absoluteCopyBtn: {
+        position: 'absolute', top: 12, right: 12, zIndex: 10,
+        backgroundColor: theme.cardBg, width: 32, height: 32, borderRadius: 10,
+        alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: theme.cardBorder,
+        shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 2
+    },
+    narrativeTypeface: {
+        fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontSize: 11.5,
+        lineHeight: 18, color: theme.textPrimary, opacity: 0.9, paddingRight: 30
+    },
+    narrativeEmpty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 20, opacity: 0.4 },
+    narrativePlaceholder: { fontSize: 12, color: theme.textSecondary, fontStyle: 'italic', textAlign: 'center' },
+
+    premiumFooter: {
+        padding: 24,
+        borderTopWidth: 1,
+        borderTopColor: theme.cardBorder + '50',
+        backgroundColor: theme.cardBg
+    },
+    premiumMasterBtn: { height: 60, borderRadius: 20, overflow: 'hidden', elevation: 4 },
+    premiumMasterGradient: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
+    premiumMasterContent: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+    premiumMasterText: { color: '#fff', fontSize: 17, fontWeight: '800', letterSpacing: 0.5 },
+
+    // Elite Image Viewer
+    imageViewerOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.98)', justifyContent: 'center', alignItems: 'center' },
+    imageViewerClose: {
+        position: 'absolute', top: 60, right: 28, zIndex: 100, width: 44, height: 44,
+        borderRadius: 16, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center'
+    },
+    fullscreenImage: { width: '100%', height: '100%' },
+    // --- PROFIT SETTINGS CARD PREMIUM STYLES ---
+    sectionIconCircle: { width: 28, height: 28, borderRadius: 14, backgroundColor: theme.primary, alignItems: 'center', justifyContent: 'center' },
+    dateBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: theme.cardBg, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: theme.cardBorder },
+    dateBadgeText: { fontSize: 10, fontWeight: '700', color: theme.textSecondary },
+
+    profitCard: { backgroundColor: theme.cardBg, borderRadius: 24, padding: 20, marginBottom: 24, borderWidth: 1, borderColor: theme.cardBorder, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 10, elevation: 2 },
+
+    profitHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+    pLabel: { fontSize: 11, fontWeight: '800', color: theme.textSecondary, letterSpacing: 1, marginBottom: 4 },
+    pSub: { fontSize: 11, color: theme.textSecondary, opacity: 0.7, maxWidth: 200 },
+
+    modeSwitch: { flexDirection: 'row', backgroundColor: theme.background, padding: 4, borderRadius: 12, borderWidth: 1, borderColor: theme.cardBorder },
+    switchOption: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 },
+    switchOptionActive: { backgroundColor: theme.primary, shadowColor: theme.primary, shadowOpacity: 0.3, shadowRadius: 4, elevation: 2 },
+    switchText: { fontSize: 12, fontWeight: '700', color: theme.textSecondary },
+    switchTextActive: { color: '#fff' },
+
+    pDivider: { height: 1, backgroundColor: theme.cardBorder, opacity: 0.5, marginVertical: 12 },
+
+    pRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 },
+
+    percentInputBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.background, borderWidth: 1, borderColor: theme.cardBorder, borderRadius: 12, height: 44, paddingHorizontal: 16, width: 100 },
+    percentInput: { flex: 1, fontSize: 16, fontWeight: '800', color: theme.textPrimary, textAlign: 'right', marginRight: 4 },
+    percentSuffix: { fontSize: 14, fontWeight: '700', color: theme.textSecondary },
+
+    toggleTrack: { width: 48, height: 28, borderRadius: 14, justifyContent: 'center', paddingHorizontal: 2 },
+    toggleKnob: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#fff', shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 2, elevation: 2 },
+
+    saveBtn: { backgroundColor: theme.primary + '10', height: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginTop: 20, borderWidth: 1, borderColor: theme.primary + '30' },
+    saveBtnText: { color: theme.primary, fontWeight: '800', fontSize: 14, letterSpacing: 0.5 },
+    pFooter: { textAlign: 'center', fontSize: 10, color: theme.textSecondary, marginTop: 12, opacity: 0.7 },
+
+    // Action Modal Styles
+    actionModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 16 },
+    actionCard: { width: '95%', maxWidth: 380, backgroundColor: theme.cardBg, borderRadius: 32, padding: 24, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 20 }, shadowOpacity: 0.5, shadowRadius: 30, elevation: 20, borderWidth: 1, borderColor: theme.cardBorder },
+    actionIconBoxLarge: { width: 80, height: 80, borderRadius: 30, justifyContent: 'center', alignItems: 'center', marginBottom: 24 },
+    actionTitle: { fontSize: 22, fontWeight: '800', color: theme.textPrimary, marginBottom: 12, textAlign: 'center' },
+    actionMessage: { fontSize: 14, color: theme.textSecondary, textAlign: 'center', lineHeight: 22, marginBottom: 32, opacity: 0.8 },
+    actionBtnRow: { flexDirection: 'row', gap: 10, width: '100%' },
+    actionCancelBtn: {
+        flex: 1, height: 58, borderRadius: 20, paddingHorizontal: 8,
+        justifyContent: 'center', alignItems: 'center',
+        backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F1F5F9',
+        borderWidth: 1.5, borderColor: theme.cardBorder
+    },
+    actionCancelText: { color: theme.textPrimary, fontWeight: '800', fontSize: 13, opacity: 0.8 },
+    actionConfirmBtn: {
+        flex: 1.8, height: 58, borderRadius: 20, paddingHorizontal: 8,
+        justifyContent: 'center', alignItems: 'center',
+        shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.2, shadowRadius: 10, elevation: 6
+    },
+    actionConfirmText: { color: '#fff', fontWeight: '900', fontSize: 13, letterSpacing: 0.2, textAlign: 'center' }
 });
+

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, ActivityIndicator, Alert, TextInput, Animated, Modal, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, ActivityIndicator, Alert, TextInput, Animated, Modal, Platform, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
@@ -28,6 +28,7 @@ import {
     Check,
     Clock,
     Maximize2,
+    FileText,
     Image as ImageIcon
 } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -49,6 +50,8 @@ export default function ClientDashboard({ navigation }) {
     const [filteredHistory, setFilteredHistory] = useState([]);
     const [filterType, setFilterType] = useState('ALL'); // ALL, DEPOSIT, WITHDRAWAL, PAYOUT
     const [showFilterMenu, setShowFilterMenu] = useState(false);
+    const [historyPage, setHistoryPage] = useState(1);
+    const ITEMS_PER_PAGE = 4;
 
     // Notifications
     const [unreadNotifications, setUnreadNotifications] = useState(0);
@@ -70,8 +73,15 @@ export default function ClientDashboard({ navigation }) {
     // Payout Modal State
     const [selectedPayout, setSelectedPayout] = useState(null);
     const [modalVisible, setModalVisible] = useState(false);
+    const [fullImageModalVisible, setFullImageModalVisible] = useState(false);
     const [imageZoomed, setImageZoomed] = useState(false);
     const [copied, setCopied] = useState(false);
+
+    // Profit Filter State
+    const [selectedProfitYear, setSelectedProfitYear] = useState('All');
+    const [showProfitYearFilter, setShowProfitYearFilter] = useState(false);
+    const [profitPageHistory, setProfitPageHistory] = useState(1);
+    const PROFITS_PER_PAGE = 4;
 
 
 
@@ -131,6 +141,33 @@ export default function ClientDashboard({ navigation }) {
         }
     }, [calcAmount, calcDuration, calcType]);
 
+    // --- Scroll Refs ---
+    const scrollViewRef = useRef(null);
+    const profitSectionRef = useRef(0);
+    const historySectionRef = useRef(0);
+
+    const storeSectionY = (key, event) => {
+        const layout = event.nativeEvent.layout;
+        if (key === 'profit') profitSectionRef.current = layout.y;
+        if (key === 'history') historySectionRef.current = layout.y;
+    };
+
+    const scrollToSection = (section) => {
+        if (!scrollViewRef.current) return;
+
+        let y = 0;
+        if (section === 'profit') y = profitSectionRef.current;
+        if (section === 'history') y = historySectionRef.current;
+        if (section === 'top') y = 0; // Added for scrolling to top
+
+        // Add a small offset or delay if needed, but native scrollTo is usually fine
+        // Might need a small timeout to allow sidebar to close first for smoother anim
+        setTimeout(() => {
+            const finalY = Math.max(0, y - 20);
+            scrollViewRef.current.scrollTo({ y: finalY, animated: true });
+        }, 350);
+    };
+
     // --- Fetch Data ---
     const loadData = async () => {
         try {
@@ -142,59 +179,60 @@ export default function ClientDashboard({ navigation }) {
                 clientService.getTransactions()
             ]);
 
-            // 1. Portfolio
             if (portfolioRes.status === 'fulfilled') {
                 setPortfolio(portfolioRes.value);
             }
 
-            // 2. Profit History
-            if (profitRes.status === 'fulfilled') {
-                setProfitHistory(profitRes.value);
-            }
-
-            // 3. Activity Feed (Merge & Sort)
+            // 3. Activity Feed Initialization
             let historyList = [];
 
             if (depositsRes.status === 'fulfilled') {
-                // Only show PENDING or REJECTED deposits here, as APPROVED ones will show as Transactions
                 const deposits = depositsRes.value
                     .filter(d => d.status !== 'APPROVED')
                     .map(d => ({ ...d, type: 'DEPOSIT', label: 'Deposit Request' }));
                 historyList = [...historyList, ...deposits];
             }
             if (withdrawalsRes.status === 'fulfilled') {
-                // Only show PENDING or REJECTED withdrawals here, as APPROVED ones will show as Transactions
                 const withdrawals = withdrawalsRes.value
                     .filter(w => w.status !== 'APPROVED')
                     .map(w => ({ ...w, type: 'WITHDRAWAL', label: 'Withdrawal Request' }));
                 historyList = [...historyList, ...withdrawals];
             }
-            if (transactionsRes.status === 'fulfilled') {
-                // Include ALL transaction types (PAYOUT, DEPOSIT, WITHDRAWAL)
-                // These represent COMPLETED actions (Admin manual entries or approved requests)
-                const transactions = transactionsRes.value.map(t => {
-                    const desc = (t.description || '').toLowerCase();
-                    const isManual = !desc.includes('approved') && t.type !== 'PAYOUT';
 
-                    return {
-                        ...t,
-                        label: t.type === 'PAYOUT' ? 'Profit Payout' :
-                            t.type === 'DEPOSIT' ? 'Funds Added' :
-                                t.type === 'WITHDRAWAL' ? 'Withdrawal' : 'Portfolio Action',
-                        status: isManual ? 'ADMIN' : (desc.includes('approved') ? 'APPROVED' : 'COMPLETED'),
-                        createdAt: t.createdAt || t.date || t.timestamp
-                    };
-                });
+            if (transactionsRes.status === 'fulfilled') {
+
+
+                // Filter out generic portfolio actions from main history
+                // Users want to see Deposits, Withdrawals, and Payouts here
+                const transactions = transactionsRes.value
+                    .filter(t => t.type === 'DEPOSIT' || t.type === 'WITHDRAWAL' || t.type === 'PAYOUT')
+                    .map(t => {
+                        const desc = (t.description || '').toLowerCase();
+                        const isManual = !desc.includes('approved');
+                        return {
+                            ...t,
+                            label: t.type === 'DEPOSIT' ? 'Funds Added' : (t.type === 'PAYOUT' ? 'Payout' : 'Withdrawal'),
+                            status: isManual ? 'ADMIN' : (desc.includes('approved') ? 'APPROVED' : 'COMPLETED'),
+                            createdAt: t.createdAt || t.date || t.timestamp
+                        };
+                    });
                 historyList = [...historyList, ...transactions];
+
+                if (profitRes.status === 'fulfilled') {
+                    // Sort descending
+                    const profitHistory = [...profitRes.value];
+                    profitHistory.sort((a, b) => new Date(b.calculatedAt || b.createdAt) - new Date(a.calculatedAt || a.createdAt));
+                    setProfitHistory(profitHistory);
+                }
+            } else {
+                if (profitRes.status === 'fulfilled') {
+                    setProfitHistory(profitRes.value);
+                }
             }
 
             // Sort by Date Descending
             historyList.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
             setAllHistory(historyList);
-            // We don't setFilteredHistory here directly to avoid conflict with the other useEffect
-            // But we need to set it initially if it's empty? 
-            // Better: update the existing useEffect [filterType, allHistory] to handle the initial sync.
-            // Actually, if we just setAllHistory, the other effect will kick in because allHistory changed.
 
         } catch (error) {
             console.error("Dashboard fetch error:", error);
@@ -229,7 +267,7 @@ export default function ClientDashboard({ navigation }) {
 
         setClientNotifications(recentUpdates);
         setUnreadNotifications(recentUpdates.length);
-
+        setHistoryPage(1); // Reset to first page on filter change
     }, [filterType, allHistory]);
 
     const onRefresh = useCallback(() => {
@@ -237,9 +275,14 @@ export default function ClientDashboard({ navigation }) {
         loadData();
     }, []);
 
-    const toggleSidebar = () => {
+    const toggleSidebar = (targetSection = null) => {
         if (mobileMenuOpen) {
-            Animated.timing(slideAnim, { toValue: -300, duration: 300, useNativeDriver: true }).start(() => setMobileMenuOpen(false));
+            Animated.timing(slideAnim, { toValue: -300, duration: 300, useNativeDriver: true }).start(() => {
+                setMobileMenuOpen(false);
+                if (targetSection) {
+                    scrollToSection(targetSection);
+                }
+            });
         } else {
             setMobileMenuOpen(true);
             Animated.timing(slideAnim, { toValue: 0, duration: 300, useNativeDriver: true }).start();
@@ -248,9 +291,63 @@ export default function ClientDashboard({ navigation }) {
 
 
 
+
     const totalInvested = portfolio?.totalInvested || 0;
     const totalValue = portfolio?.totalValue || 0;
-    const profit = portfolio?.profit || (totalValue - totalInvested);
+
+    // Calculate TOTAL NET PROFIT (TILL DATE) by summing ALL profit history
+    // This should NEVER change - it's the lifetime total profit earned
+    const totalNetProfit = useMemo(() => {
+        return profitHistory.reduce((sum, item) => {
+            const amount = item.profitAmount || item.amount || 0;
+            return sum + parseFloat(amount);
+        }, 0);
+    }, [profitHistory]);
+
+    // Get available years from profit history
+    const availableProfitYears = useMemo(() => {
+        const years = new Set();
+        profitHistory.forEach(item => {
+            if (item.year) {
+                years.add(item.year);
+            } else if (item.calculatedAt) {
+                years.add(new Date(item.calculatedAt).getFullYear());
+            }
+        });
+        return ['All', ...Array.from(years).sort((a, b) => b - a)];
+    }, [profitHistory]);
+
+    // Filter profit history by selected year
+    const filteredProfitHistory = useMemo(() => {
+        if (selectedProfitYear === 'All') {
+            return profitHistory;
+        }
+        return profitHistory.filter(item => {
+            const itemYear = item.year || (item.calculatedAt ? new Date(item.calculatedAt).getFullYear() : null);
+            return itemYear === selectedProfitYear;
+        });
+    }, [profitHistory, selectedProfitYear]);
+
+    // Paginated Profit History
+    const paginatedProfitHistory = useMemo(() => {
+        const start = (profitPageHistory - 1) * PROFITS_PER_PAGE;
+        return filteredProfitHistory.slice(start, start + PROFITS_PER_PAGE);
+    }, [filteredProfitHistory, profitPageHistory]);
+
+    const totalProfitPages = Math.ceil(filteredProfitHistory.length / PROFITS_PER_PAGE) || 1;
+
+    // Reset profit page on year change
+    useEffect(() => {
+        setProfitPageHistory(1);
+    }, [selectedProfitYear]);
+
+    // Paginated History
+    const paginatedHistory = useMemo(() => {
+        const start = (historyPage - 1) * ITEMS_PER_PAGE;
+        return filteredHistory.slice(start, start + ITEMS_PER_PAGE);
+    }, [filteredHistory, historyPage]);
+
+    const totalHistoryPages = Math.ceil(filteredHistory.length / ITEMS_PER_PAGE) || 1;
 
     if (loading) {
         return (
@@ -360,6 +457,7 @@ export default function ClientDashboard({ navigation }) {
 
             {/* Main Content */}
             <ScrollView
+                ref={scrollViewRef}
                 contentContainerStyle={styles.scrollContent}
                 refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.primary} />}
             >
@@ -394,8 +492,8 @@ export default function ClientDashboard({ navigation }) {
                     <View style={styles.statCard}>
                         <View style={styles.statHeader}>
                             <View style={{ flex: 1 }}>
-                                <Text style={styles.statLabel}>CAPITAL</Text>
-                                <Text style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit>₹{totalInvested.toLocaleString()}</Text>
+                                <Text style={styles.statLabel}>INVESTMENT</Text>
+                                <Text style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit>{formatCurrency(totalInvested)}</Text>
                             </View>
                             <View style={[styles.statIconBox, { backgroundColor: theme.primaryBg }]}>
                                 <Wallet size={18} color={theme.primary} />
@@ -408,12 +506,8 @@ export default function ClientDashboard({ navigation }) {
 
                     {/* 2. Next Estimated Payout */}
                     {(() => {
-                        const approvedWithdrawals = allHistory
-                            .filter(h => h.type === 'WITHDRAWAL' && h.status === 'APPROVED')
-                            .reduce((sum, item) => sum + item.amount, 0);
-
-                        const netInvestment = Math.max(0, totalInvested - approvedWithdrawals);
-                        const nextProfit = netInvestment * 0.04;
+                        // Use the backend-provided estimation if available, else 0.
+                        const nextProfit = portfolio?.nextEstimatedPayout || 0;
                         const nextDate = new Date();
                         nextDate.setMonth(nextDate.getMonth() + 1);
 
@@ -421,8 +515,8 @@ export default function ClientDashboard({ navigation }) {
                             <View style={styles.statCard}>
                                 <View style={styles.statHeader}>
                                     <View style={{ flex: 1 }}>
-                                        <Text style={styles.statLabel}>Est. Payout</Text>
-                                        <Text style={[styles.statValue, { color: theme.success }]} numberOfLines={1} adjustsFontSizeToFit>₹{nextProfit.toLocaleString(undefined, { maximumFractionDigits: 0 })}</Text>
+                                        <Text style={styles.statLabel}>Next Payout</Text>
+                                        <Text style={[styles.statValue, { color: theme.success }]} numberOfLines={1} adjustsFontSizeToFit>{formatCurrency(nextProfit)}</Text>
                                     </View>
                                     <View style={[styles.statIconBox, { backgroundColor: theme.successBg }]}>
                                         <CalendarClock size={18} color={theme.success} />
@@ -440,7 +534,7 @@ export default function ClientDashboard({ navigation }) {
                         <View style={styles.statHeader}>
                             <View style={{ flex: 1 }}>
                                 <Text style={styles.statLabel}>Avail. Profit</Text>
-                                <Text style={[styles.statValue, { color: theme.warning }]} numberOfLines={1} adjustsFontSizeToFit>₹{Math.max(0, portfolio?.availableProfit || 0).toLocaleString()}</Text>
+                                <Text style={[styles.statValue, { color: theme.warning }]} numberOfLines={1} adjustsFontSizeToFit>{formatCurrency(Math.floor(Math.max(0, portfolio?.availableProfit || 0)))}</Text>
                             </View>
                             <View style={[styles.statIconBox, { backgroundColor: theme.warningBg }]}>
                                 <Text style={{ fontSize: 16 }}>💰</Text>
@@ -459,7 +553,7 @@ export default function ClientDashboard({ navigation }) {
                         <View style={styles.statHeader}>
                             <View style={{ flex: 1 }}>
                                 <Text style={[styles.statLabel, { color: theme.mode === 'light' ? theme.textSecondary : '#a5b4fc' }]}>Balance</Text>
-                                <Text style={[styles.statValue, { color: theme.mode === 'light' ? theme.darkCardText : theme.textPrimary }]} numberOfLines={1} adjustsFontSizeToFit>₹{((portfolio?.totalInvested || 0) + (portfolio?.availableProfit || 0)).toLocaleString()}</Text>
+                                <Text style={[styles.statValue, { color: theme.mode === 'light' ? theme.darkCardText : theme.textPrimary }]} numberOfLines={1} adjustsFontSizeToFit>{formatCurrency(Math.floor((portfolio?.totalInvested || 0) + (portfolio?.availableProfit || 0)))}</Text>
                             </View>
                             <View style={[styles.statIconBox, { backgroundColor: 'rgba(255, 255, 255, 0.1)' }]}>
                                 <Text style={{ fontSize: 16 }}>💸</Text>
@@ -529,8 +623,8 @@ export default function ClientDashboard({ navigation }) {
                                 : { borderColor: theme.inputBorder, backgroundColor: isDark ? 'rgba(30, 41, 59, 0.4)' : '#f8fafc' }
                         ]}>
                             <Text style={styles.resultLabel}>Fixed Profit</Text>
-                            <Text style={[styles.resultValue, { color: theme.textPrimary }]} numberOfLines={1} adjustsFontSizeToFit>₹{calcResult.fixed.profit.toLocaleString()}</Text>
-                            <Text style={styles.resultTotal} numberOfLines={1} adjustsFontSizeToFit>Total: ₹{calcResult.fixed.finalAmount.toLocaleString()}</Text>
+                            <Text style={[styles.resultValue, { color: theme.textPrimary }]} numberOfLines={1} adjustsFontSizeToFit>{formatCurrency(calcResult.fixed.profit)}</Text>
+                            <Text style={styles.resultTotal} numberOfLines={1} adjustsFontSizeToFit>Total: {formatCurrency(calcResult.fixed.finalAmount)}</Text>
                         </View>
 
                         <View style={[
@@ -543,10 +637,10 @@ export default function ClientDashboard({ navigation }) {
                                 {calcDuration > 6 && <TrendingUp size={12} color={theme.success} />}
                             </View>
                             <Text style={[styles.resultValue, { color: theme.success }]} numberOfLines={1} adjustsFontSizeToFit>
-                                {calcDuration > 6 ? `₹${calcResult.compounded.profit.toLocaleString()}` : '---'}
+                                {calcDuration > 6 ? formatCurrency(calcResult.compounded.profit) : '---'}
                             </Text>
                             <Text style={[styles.resultTotal, { color: theme.success }]} numberOfLines={1} adjustsFontSizeToFit>
-                                {calcDuration > 6 ? `Total: ₹${calcResult.compounded.finalAmount.toLocaleString()}` : 'Min 7M'}
+                                {calcDuration > 6 ? `Total: ${formatCurrency(calcResult.compounded.finalAmount)}` : 'Min 7M'}
                             </Text>
                         </View>
                     </View>
@@ -616,118 +710,291 @@ export default function ClientDashboard({ navigation }) {
                 </View>
 
                 {/* Profit Summary & History */}
-                <View style={[styles.card, { marginTop: 16 }]}>
+                <View
+                    style={[styles.card, { marginTop: 16 }]}
+                    onLayout={(e) => storeSectionY('profit', e)}
+                >
                     <View style={styles.cardHeaderRow}>
                         <Calendar size={20} color={theme.primary} />
                         <Text style={styles.cardTitle}>Profit Summary</Text>
                     </View>
 
-                    <View style={{ marginTop: 16 }}>
-                        <Text style={styles.cardLabel}>TOTAL NET PROFIT (TILL DATE)</Text>
-                        <Text style={[styles.moneyMedium, { color: theme.success }]}>
-                            {formatCurrency(profit)}
-                        </Text>
+                    {/* Total Profit with Year Filter */}
+                    <View style={{ marginTop: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <View style={{ flex: 1 }}>
+                            <Text style={styles.cardLabel}>TOTAL NET PROFIT (TILL DATE)</Text>
+                            <Text style={[styles.moneyMedium, { color: theme.success }]}>
+                                {formatCurrency(totalNetProfit)}
+                            </Text>
+                        </View>
+
+                        {/* Year Filter Button */}
+                        {availableProfitYears.length > 1 && (
+                            <View style={{ position: 'relative', zIndex: 1000 }}>
+                                <TouchableOpacity
+                                    style={styles.yearFilterBtn}
+                                    onPress={() => setShowProfitYearFilter(!showProfitYearFilter)}
+                                >
+                                    <Text style={styles.yearFilterText}>{selectedProfitYear}</Text>
+                                    <ChevronDown size={14} color={theme.primary} />
+                                </TouchableOpacity>
+
+                                {/* Year Filter Dropdown - Absolutely Positioned Popup */}
+                                {showProfitYearFilter && (
+                                    <View style={styles.yearFilterDropdown}>
+                                        {availableProfitYears.map((year) => (
+                                            <TouchableOpacity
+                                                key={year}
+                                                style={[
+                                                    styles.yearFilterOption,
+                                                    selectedProfitYear === year && styles.yearFilterOptionActive
+                                                ]}
+                                                onPress={() => {
+                                                    setSelectedProfitYear(year);
+                                                    setShowProfitYearFilter(false);
+                                                }}
+                                            >
+                                                <Text style={[
+                                                    styles.yearFilterOptionText,
+                                                    selectedProfitYear === year && { color: theme.primary, fontWeight: '700' }
+                                                ]}>
+                                                    {year}
+                                                </Text>
+                                                {selectedProfitYear === year && <View style={styles.activeDot} />}
+                                            </TouchableOpacity>
+                                        ))}
+                                    </View>
+                                )}
+                            </View>
+                        )}
                     </View>
 
                     <View style={styles.divider} />
 
-                    {profitHistory.length > 0 ? profitHistory.slice(0, 5).map((item, index) => (
-                        <View key={index} style={styles.historyRow}>
-                            <Text style={styles.historyText}>{item.month}/{item.year}</Text>
-                            <Text style={styles.historyAmount} numberOfLines={1} adjustsFontSizeToFit>+{formatCurrency(item.amount)}</Text>
+                    {filteredProfitHistory.length > 0 ? (
+                        <>
+                            <Text style={[styles.cardLabel, { marginBottom: 12 }]}>MONTHLY BREAKDOWN</Text>
+                            <View style={{ minHeight: 200 }}>
+                                {paginatedProfitHistory.map((item, index) => {
+                                    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                                    const monthName = item.month ? monthNames[item.month - 1] : null;
+
+                                    // Format date as dd/mm/yyyy hh:mm
+                                    let displayDate = null;
+                                    if (item.calculatedAt) {
+                                        const date = new Date(item.calculatedAt);
+                                        const day = String(date.getDate()).padStart(2, '0');
+                                        const month = String(date.getMonth() + 1).padStart(2, '0');
+                                        const year = date.getFullYear();
+                                        const hours = String(date.getHours()).padStart(2, '0');
+                                        const minutes = String(date.getMinutes()).padStart(2, '0');
+                                        displayDate = `${day}/${month}/${year} ${hours}:${minutes}`;
+                                    }
+
+                                    return (
+                                        <View
+                                            key={index}
+                                            style={[
+                                                styles.profitHistoryItem,
+                                                index === paginatedProfitHistory.length - 1 && { borderBottomWidth: 0 }
+                                            ]}
+                                        >
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 12 }}>
+                                                {/* Month/Year Badge */}
+                                                <View style={styles.profitMonthBadge}>
+                                                    <Text style={styles.profitMonthText}>
+                                                        {monthName || (item.calculatedAt ? monthNames[new Date(item.calculatedAt).getMonth()] : 'N/A')}
+                                                    </Text>
+                                                    <Text style={styles.profitYearText}>
+                                                        {item.year || (item.calculatedAt ? new Date(item.calculatedAt).getFullYear() : '')}
+                                                    </Text>
+                                                </View>
+
+                                                {/* Details */}
+                                                <View style={{ flex: 1 }}>
+                                                    <Text style={styles.profitEntryTitle}>
+                                                        Monthly Profit
+                                                    </Text>
+                                                    <Text style={styles.profitEntryDate}>
+                                                        {displayDate || (monthName && item.year ? `${monthName} ${item.year}` : 'Profit Entry')}
+                                                    </Text>
+                                                </View>
+                                            </View>
+
+                                            {/* Amount & Percentage */}
+                                            <View style={{ alignItems: 'flex-end' }}>
+                                                <Text style={styles.profitEntryAmount}>
+                                                    +{formatCurrency(item.profitAmount || item.amount)}
+                                                </Text>
+                                                {item.profitPercentage && (
+                                                    <View style={styles.profitPercentageBadge}>
+                                                        <Text style={styles.profitPercentageText}>
+                                                            {item.profitPercentage}%
+                                                        </Text>
+                                                    </View>
+                                                )}
+                                            </View>
+                                        </View>
+                                    );
+                                })}
+                            </View>
+
+                            {totalProfitPages > 1 && (
+                                <View style={[styles.paginationRow, { marginTop: 8, paddingHorizontal: 4, backgroundColor: 'transparent' }]}>
+                                    <TouchableOpacity
+                                        style={[styles.paginationBtn, profitPageHistory === 1 && { opacity: 0.5 }]}
+                                        disabled={profitPageHistory === 1}
+                                        onPress={() => setProfitPageHistory(p => Math.max(1, p - 1))}
+                                    >
+                                        <Text style={styles.paginationBtnText}>Previous</Text>
+                                    </TouchableOpacity>
+
+                                    <Text style={styles.pageIndicatorText}>
+                                        Page {profitPageHistory} of {totalProfitPages}
+                                    </Text>
+
+                                    <TouchableOpacity
+                                        style={[styles.paginationBtn, profitPageHistory === totalProfitPages && { opacity: 0.5 }]}
+                                        disabled={profitPageHistory === totalProfitPages}
+                                        onPress={() => setProfitPageHistory(p => Math.min(totalProfitPages, p + 1))}
+                                    >
+                                        <Text style={styles.paginationBtnText}>Next</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            )}
+                        </>
+                    ) : (
+                        <View style={styles.emptyProfitState}>
+                            <TrendingUp size={32} color={theme.textSecondary} opacity={0.3} />
+                            <Text style={styles.emptyText}>No profit history yet.</Text>
+                            <Text style={[styles.emptyText, { fontSize: 11, marginTop: 4 }]}>
+                                Your monthly profits will appear here
+                            </Text>
                         </View>
-                    )) : (
-                        <Text style={styles.emptyText}>No profit history yet.</Text>
                     )}
                 </View>
 
                 {/* Transaction History Section */}
-                <View style={[styles.card, { marginTop: 16, padding: 0, overflow: 'hidden' }]}>
+                <View
+                    style={[styles.card, { marginTop: 16, padding: 0 }]}
+                    onLayout={(e) => storeSectionY('history', e)}
+                >
                     <View style={styles.sectionHeaderBox}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                             <History size={20} color={theme.primary} />
                             <Text style={styles.cardTitle}>History</Text>
                         </View>
 
-                        <TouchableOpacity style={styles.filterBtn} onPress={() => setShowFilterMenu(!showFilterMenu)}>
-                            <Filter size={14} color={theme.textSecondary} />
-                            <Text style={styles.filterBtnText}>{filterType === 'ALL' ? 'All' : filterType}</Text>
-                            <ChevronDown size={14} color={theme.textSecondary} />
-                        </TouchableOpacity>
+                        <View style={{ position: 'relative', zIndex: 1002 }}>
+                            <TouchableOpacity style={styles.filterBtn} onPress={() => setShowFilterMenu(!showFilterMenu)}>
+                                <Filter size={14} color={theme.textSecondary} />
+                                <Text style={styles.filterBtnText}>{filterType === 'ALL' ? 'All' : filterType}</Text>
+                                <ChevronDown size={14} color={theme.textSecondary} />
+                            </TouchableOpacity>
+
+                            {showFilterMenu && (
+                                <View style={styles.filterMenu}>
+                                    {['ALL', 'DEPOSIT', 'WITHDRAWAL', 'PAYOUT'].map(type => (
+                                        <TouchableOpacity
+                                            key={type}
+                                            style={[styles.filterOption, filterType === type && styles.filterOptionActive]}
+                                            onPress={() => { setFilterType(type); setShowFilterMenu(false); }}
+                                        >
+                                            <Text style={[styles.filterOptionText, filterType === type && { color: theme.primary }]}>
+                                                {type === 'ALL' ? 'All Transactions' : type}
+                                            </Text>
+                                            {filterType === type && <View style={styles.activeDot} />}
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+                            )}
+                        </View>
                     </View>
 
-                    {showFilterMenu && (
-                        <View style={styles.filterMenu}>
-                            {['ALL', 'DEPOSIT', 'WITHDRAWAL', 'PAYOUT'].map(type => (
-                                <TouchableOpacity
-                                    key={type}
-                                    style={[styles.filterOption, filterType === type && styles.filterOptionActive]}
-                                    onPress={() => { setFilterType(type); setShowFilterMenu(false); }}
-                                >
-                                    <Text style={[styles.filterOptionText, filterType === type && { color: theme.primary }]}>
-                                        {type === 'ALL' ? 'All Transactions' : type}
-                                    </Text>
-                                    {filterType === type && <View style={styles.activeDot} />}
-                                </TouchableOpacity>
-                            ))}
-                        </View>
-                    )}
-
                     <View style={styles.historyList}>
-                        {filteredHistory.length === 0 ? (
+                        {paginatedHistory.length === 0 ? (
                             <Text style={styles.emptyText}>No transactions found.</Text>
                         ) : (
-                            filteredHistory.map((item, index) => (
-                                <View key={index} style={styles.transactionItem}>
-                                    <View style={[styles.transIconBox, {
-                                        backgroundColor: item.type === 'DEPOSIT' ? 'rgba(16, 185, 129, 0.1)' :
-                                            item.type === 'WITHDRAWAL' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(99, 102, 241, 0.1)'
-                                    }]}>
-                                        {item.type === 'DEPOSIT' ? <ArrowUpRight size={16} color={theme.success} /> :
-                                            item.type === 'WITHDRAWAL' ? <ArrowDownLeft size={16} color={theme.error} /> :
-                                                <Banknote size={16} color={theme.primary} />}
-                                    </View>
-                                    <View style={{ flex: 1, paddingHorizontal: 12 }}>
-                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                                            <Text style={styles.transType}>{item.label || item.type}</Text>
-                                            {item.type === 'PAYOUT' && (
-                                                <TouchableOpacity
-                                                    onPress={() => { setSelectedPayout(item); setModalVisible(true); }}
-                                                    style={styles.eyeBtn}
-                                                >
-                                                    <Eye size={14} color={theme.primary} />
-                                                </TouchableOpacity>
-                                            )}
-                                        </View>
-                                        <Text style={styles.transDate}>
-                                            {new Date(item.createdAt).toLocaleDateString()} • {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                        </Text>
-                                    </View>
-                                    <View style={{ alignItems: 'flex-end', flex: 0.4 }}>
-                                        <Text style={[styles.transAmount, { color: theme.textPrimary }]} numberOfLines={1} adjustsFontSizeToFit>
-                                            {item.type === 'DEPOSIT' || item.type === 'PAYOUT' ? '+' : '-'}
-                                            {formatCurrency(item.amount)}
-                                        </Text>
-                                        <View style={[styles.statusBadge, {
-                                            borderColor: item.status === 'ADMIN' ? '#3b82f6' :
-                                                (item.status === 'APPROVED' || item.status === 'COMPLETED' ? theme.success :
-                                                    item.status === 'REJECTED' ? theme.error : theme.warning)
+                            <React.Fragment>
+                                {paginatedHistory.map((item, index) => (
+                                    <View key={index} style={[
+                                        styles.transactionItem,
+                                        index === paginatedHistory.filter(item => item.type !== 'PROFIT').length - 1 && { borderBottomWidth: 0 }
+                                    ]}>
+                                        <View style={[styles.transIconBox, {
+                                            backgroundColor: item.type === 'DEPOSIT' ? 'rgba(16, 185, 129, 0.1)' :
+                                                item.type === 'WITHDRAWAL' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(99, 102, 241, 0.1)'
                                         }]}>
-                                            <Text
-                                                numberOfLines={1}
-                                                adjustsFontSizeToFit
-                                                style={[styles.statusText, {
-                                                    color: item.status === 'ADMIN' ? '#3b82f6' :
-                                                        (item.status === 'APPROVED' || item.status === 'COMPLETED' ? theme.success :
-                                                            item.status === 'REJECTED' ? theme.error : theme.warning)
-                                                }]}
-                                            >
-                                                {item.status}
+                                            {item.type === 'DEPOSIT' ? <ArrowUpRight size={16} color={theme.success} /> :
+                                                item.type === 'WITHDRAWAL' ? <ArrowDownLeft size={16} color={theme.error} /> :
+                                                    <Banknote size={16} color={theme.primary} />}
+                                        </View>
+                                        <View style={{ flex: 1, paddingHorizontal: 12 }}>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                                <Text style={styles.transType}>{item.label || item.type}</Text>
+                                                {item.type === 'PAYOUT' && (
+                                                    <TouchableOpacity
+                                                        onPress={() => { setSelectedPayout(item); setModalVisible(true); }}
+                                                        style={styles.eyeBtn}
+                                                    >
+                                                        <Eye size={14} color={theme.primary} />
+                                                    </TouchableOpacity>
+                                                )}
+                                            </View>
+                                            <Text style={styles.transDate}>
+                                                {new Date(item.createdAt).toLocaleDateString()} • {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                             </Text>
                                         </View>
+                                        <View style={{ alignItems: 'flex-end', flex: 0.6 }}>
+                                            <Text style={[styles.transAmount, { color: theme.textPrimary }]} numberOfLines={1} adjustsFontSizeToFit>
+                                                {item.type === 'DEPOSIT' || item.type === 'PAYOUT' ? '+' : '-'}
+                                                {formatCurrency(item.amount)}
+                                            </Text>
+                                            <View style={[styles.statusBadge, {
+                                                borderColor: item.status === 'ADMIN' ? '#3b82f6' :
+                                                    (item.status === 'APPROVED' || item.status === 'COMPLETED' ? theme.success :
+                                                        item.status === 'REJECTED' ? theme.error : theme.warning)
+                                            }]}>
+                                                <Text
+                                                    numberOfLines={1}
+                                                    adjustsFontSizeToFit
+                                                    style={[styles.statusText, {
+                                                        color: item.status === 'ADMIN' ? '#3b82f6' :
+                                                            (item.status === 'APPROVED' || item.status === 'COMPLETED' ? theme.success :
+                                                                item.status === 'REJECTED' ? theme.error : theme.warning)
+                                                    }]}
+                                                >
+                                                    {item.status}
+                                                </Text>
+                                            </View>
+                                        </View>
                                     </View>
-                                </View>
-                            ))
+                                ))}
+
+                                {totalHistoryPages > 1 && (
+                                    <View style={styles.paginationRow}>
+                                        <TouchableOpacity
+                                            style={[styles.paginationBtn, historyPage === 1 && { opacity: 0.5 }]}
+                                            disabled={historyPage === 1}
+                                            onPress={() => setHistoryPage(p => Math.max(1, p - 1))}
+                                        >
+                                            <Text style={styles.paginationBtnText}>Previous</Text>
+                                        </TouchableOpacity>
+
+                                        <Text style={styles.pageIndicatorText}>
+                                            Page {historyPage} of {totalHistoryPages}
+                                        </Text>
+
+                                        <TouchableOpacity
+                                            style={[styles.paginationBtn, historyPage === totalHistoryPages && { opacity: 0.5 }]}
+                                            disabled={historyPage === totalHistoryPages}
+                                            onPress={() => setHistoryPage(p => Math.min(totalHistoryPages, p + 1))}
+                                        >
+                                            <Text style={styles.paginationBtnText}>Next</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                )}
+                            </React.Fragment>
                         )}
                     </View>
                 </View>
@@ -757,12 +1024,6 @@ export default function ClientDashboard({ navigation }) {
                                 <View style={styles.idBadge}>
                                     <Text style={styles.idText}>#{selectedPayout?.id}</Text>
                                 </View>
-                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                                    <Clock size={12} color={theme.textSecondary} />
-                                    <Text style={styles.dateText}>
-                                        {selectedPayout && new Date(selectedPayout.createdAt).toLocaleDateString()}
-                                    </Text>
-                                </View>
                                 <View style={[styles.statusBadge, {
                                     paddingVertical: 2, paddingHorizontal: 6, marginLeft: 'auto', borderWidth: 1, borderColor: theme.cardBorder
                                 }]}>
@@ -774,33 +1035,76 @@ export default function ClientDashboard({ navigation }) {
                             {/* Proof Image */}
                             <View style={styles.proofSection}>
                                 <Text style={styles.sectionTitle}>PROOF OF PAYMENT</Text>
-                                <View style={styles.imageContainer}>
-                                    {(selectedPayout?.screenshot || selectedPayout?.screenshotPath || selectedPayout?.proof) ? (
-                                        <React.Fragment>
-                                            <View style={{ width: '100%', height: 200, backgroundColor: theme.sidebarBg, justifyContent: 'center', alignItems: 'center' }}>
-                                                <Text style={{ color: theme.textSecondary }}>Image Preview</Text>
-                                            </View>
-                                        </React.Fragment>
+                                <TouchableOpacity
+                                    style={styles.imageContainer}
+                                    onPress={() => (selectedPayout?.screenshot || selectedPayout?.screenshotPath || selectedPayout?.proof) && setFullImageModalVisible(true)}
+                                    activeOpacity={0.9}
+                                >
+                                    {selectedPayout && (selectedPayout.screenshotPath || selectedPayout.screenshot || selectedPayout.proof) ? (
+                                        <Image
+                                            source={{ uri: getImageUrl(selectedPayout.screenshotPath || selectedPayout.screenshot || selectedPayout.proof) }}
+                                            style={{ width: '100%', height: '100%' }}
+                                            resizeMode="contain"
+                                        />
                                     ) : (
                                         <View style={styles.noImage}>
                                             <ImageIcon size={32} color={theme.textSecondary} />
                                             <Text style={styles.noImageText}>No screenshot provided</Text>
                                         </View>
                                     )}
-                                </View>
+                                </TouchableOpacity>
                             </View>
 
-                            {/* Details Table */}
+                            {/* Settlement Narrative Section */}
                             <View style={styles.messageSection}>
-                                <Text style={styles.sectionTitle}>DETAILS</Text>
-                                <View style={styles.messageBox}>
-                                    <Text style={styles.messageText}>{selectedPayout?.notes || selectedPayout?.description || "No additional notes provided."}</Text>
+                                <View style={styles.sectionHeaderRow}>
+                                    <View style={styles.iconCircleMini}>
+                                        <FileText size={12} color={theme.primary} />
+                                    </View>
+                                    <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>SETTLEMENT NARRATIVE</Text>
+                                    <Text style={[styles.dateText, { fontSize: 10, opacity: 0.6, marginLeft: 'auto' }]}>
+                                        {selectedPayout && new Date(selectedPayout.createdAt).toLocaleDateString()}
+                                    </Text>
+                                </View>
+                                <View style={styles.premiumNarrativeBox}>
+                                    {(selectedPayout?.messageContent || selectedPayout?.notes) && (
+                                        <TouchableOpacity
+                                            onPress={() => handleCopy(selectedPayout.messageContent || selectedPayout.notes)}
+                                            style={styles.modalCopyBtnInside}
+                                        >
+                                            {copied ? <Check size={16} color={theme.success} /> : <Copy size={16} color={theme.primary} />}
+                                        </TouchableOpacity>
+                                    )}
+                                    <Text style={styles.premiumNarrativeText}>
+                                        {selectedPayout?.messageContent || selectedPayout?.notes || selectedPayout?.description || "No additional settlement details provided."}
+                                    </Text>
                                 </View>
                             </View>
                         </ScrollView>
                     </View>
                 </View>
             </Modal>
+
+            {/* Full Screen Image Modal */}
+            < Modal visible={fullImageModalVisible} transparent={true} animationType="fade" onRequestClose={() => setFullImageModalVisible(false)
+            }>
+                <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', justifyContent: 'center', alignItems: 'center' }}>
+                    <TouchableOpacity
+                        style={{ position: 'absolute', top: 40, right: 20, zIndex: 10, padding: 10 }}
+                        onPress={() => setFullImageModalVisible(false)}
+                    >
+                        <X size={28} color="#fff" />
+                    </TouchableOpacity>
+
+                    {selectedPayout && (
+                        <Image
+                            source={{ uri: selectedPayout.screenshotPath || selectedPayout.screenshot || selectedPayout.proof }}
+                            style={{ width: '100%', height: '90%' }}
+                            resizeMode="contain"
+                        />
+                    )}
+                </View>
+            </Modal >
 
 
 
@@ -822,15 +1126,15 @@ export default function ClientDashboard({ navigation }) {
                     <Text style={styles.sidebarTitle}>MVK<Text style={{ color: theme.primary }}>Traders</Text></Text>
                 </View>
 
-                <TouchableOpacity style={styles.sidebarItem} onPress={() => { toggleSidebar(); navigation.navigate('Dashboard'); }}>
+                <TouchableOpacity style={styles.sidebarItem} onPress={() => toggleSidebar('top')}>
                     <AlignLeft size={20} color={theme.primary} />
                     <Text style={[styles.sidebarText, { color: theme.textPrimary }]}>Dashboard</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.sidebarItem} onPress={() => { toggleSidebar(); navigation.navigate('Portfolio'); }}>
+                <TouchableOpacity style={styles.sidebarItem} onPress={() => toggleSidebar('profit')}>
                     <Wallet size={20} color={theme.textSecondary} />
                     <Text style={styles.sidebarText}>Portfolio</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.sidebarItem} onPress={() => { toggleSidebar(); navigation.navigate('History'); }}>
+                <TouchableOpacity style={styles.sidebarItem} onPress={() => toggleSidebar('history')}>
                     <History size={20} color={theme.textSecondary} />
                     <Text style={styles.sidebarText}>History</Text>
                 </TouchableOpacity>
@@ -906,6 +1210,141 @@ const getStyles = (theme) => StyleSheet.create({
     historyAmount: { color: theme.success, fontSize: 13, fontWeight: '600', fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
     moneyMedium: { fontSize: 24, fontWeight: '700', fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
 
+    // Profit History Items
+    profitHistoryItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingVertical: 14,
+        paddingHorizontal: 4,
+        borderBottomWidth: 1,
+        borderBottomColor: theme.cardBorder,
+    },
+    profitMonthBadge: {
+        width: 60,
+        height: 60,
+        borderRadius: 16,
+        // In dark mode, use a deeper background than the card to create "inset" depth
+        backgroundColor: theme.mode === 'dark' ? '#0F172A' : '#FFFFFF',
+        borderWidth: 1.5,
+        // Thicker, more vibrant border for dark mode
+        borderColor: theme.mode === 'dark' ? theme.primary : theme.primary + '25',
+        justifyContent: 'center',
+        alignItems: 'center',
+        shadowColor: theme.primary,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: theme.mode === 'dark' ? 0.4 : 0.1,
+        shadowRadius: 8,
+        elevation: 6,
+    },
+    profitMonthText: {
+        fontSize: 15,
+        fontWeight: '900', // Extra bold for month
+        // Use White in dark mode for maximum "pop"
+        color: theme.mode === 'dark' ? '#FFFFFF' : theme.primary,
+        letterSpacing: 1,
+        textTransform: 'uppercase',
+    },
+    profitYearText: {
+        fontSize: 11,
+        fontWeight: '700',
+        // Year text is primary color in dark mode for style
+        color: theme.mode === 'dark' ? theme.primary : theme.textSecondary,
+        marginTop: 1,
+    },
+    profitEntryTitle: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: theme.textPrimary,
+        marginBottom: 4,
+    },
+    profitEntryDate: {
+        fontSize: 11,
+        fontWeight: '500',
+        color: theme.textSecondary,
+        opacity: 0.8,
+    },
+    profitEntryAmount: {
+        fontSize: 16,
+        fontWeight: '700',
+        color: theme.success,
+        fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+        marginBottom: 4,
+    },
+    profitPercentageBadge: {
+        backgroundColor: theme.success + '15',
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 6,
+        borderWidth: 1,
+        borderColor: theme.success + '30',
+    },
+    profitPercentageText: {
+        fontSize: 10,
+        fontWeight: '700',
+        color: theme.success,
+        letterSpacing: 0.3,
+    },
+    emptyProfitState: {
+        alignItems: 'center',
+        paddingVertical: 32,
+        gap: 8,
+    },
+
+    // Year Filter Styles
+    yearFilterBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        backgroundColor: theme.primaryBg,
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: theme.primary + '30',
+        marginTop: 4,
+    },
+    yearFilterText: {
+        color: theme.primary,
+        fontSize: 13,
+        fontWeight: '700',
+        letterSpacing: 0.3,
+    },
+    yearFilterDropdown: {
+        position: 'absolute',
+        top: 42,
+        right: 0,
+        minWidth: 120,
+        backgroundColor: theme.modalBg,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: theme.cardBorder,
+        overflow: 'hidden',
+        shadowColor: theme.shadowColor,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.15,
+        shadowRadius: 12,
+        elevation: 8,
+        zIndex: 1001,
+    },
+    yearFilterOption: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: 12,
+        paddingHorizontal: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: theme.cardBorder,
+    },
+    yearFilterOptionActive: {
+        backgroundColor: theme.primaryBg,
+    },
+    yearFilterOptionText: {
+        color: theme.textSecondary,
+        fontSize: 13,
+        fontWeight: '500',
+    },
+
     divider: { height: 1, backgroundColor: theme.cardBorder, marginVertical: 16 },
 
     // Transaction History Section
@@ -913,7 +1352,23 @@ const getStyles = (theme) => StyleSheet.create({
     filterBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: theme.cardBg, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: theme.cardBorder },
     filterBtnText: { color: theme.textSecondary, fontSize: 12, fontWeight: '500' },
 
-    filterMenu: { backgroundColor: theme.modalBg, borderRadius: 12, borderWidth: 1, borderColor: theme.cardBorder, overflow: 'hidden', marginBottom: 12 },
+    filterMenu: {
+        position: 'absolute',
+        top: 40,
+        right: 0,
+        minWidth: 150,
+        backgroundColor: theme.modalBg,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: theme.cardBorder,
+        overflow: 'hidden',
+        shadowColor: theme.shadowColor,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.2,
+        shadowRadius: 10,
+        elevation: 10,
+        zIndex: 1003
+    },
     filterOption: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 12, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: theme.cardBorder },
     filterOptionActive: { backgroundColor: theme.primaryBg },
     filterOptionText: { color: theme.textSecondary, fontSize: 13, fontWeight: '500' },
@@ -946,8 +1401,33 @@ const getStyles = (theme) => StyleSheet.create({
     noImageText: { color: theme.textSecondary, fontSize: 12, fontWeight: '500' },
 
     messageSection: { padding: 20 },
-    messageBox: { backgroundColor: theme.background, padding: 16, borderRadius: 14, borderWidth: 1, borderColor: theme.cardBorder },
-    messageText: { color: theme.textPrimary, fontSize: 13, lineHeight: 20, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
+    sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
+    iconCircleMini: { width: 28, height: 28, borderRadius: 10, backgroundColor: theme.primary + '15', justifyContent: 'center', alignItems: 'center' },
+    premiumNarrativeBox: {
+        backgroundColor: theme.mode === 'dark' ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.03)',
+        padding: 16,
+        paddingTop: 32,
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: theme.cardBorder,
+        position: 'relative'
+    },
+    modalCopyBtnInside: {
+        position: 'absolute',
+        top: 10,
+        right: 10,
+        padding: 8,
+        backgroundColor: theme.primary + '15',
+        borderRadius: 8,
+        zIndex: 10
+    },
+    premiumNarrativeText: {
+        color: theme.textPrimary,
+        fontSize: 12,
+        lineHeight: 18,
+        fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+        opacity: 0.9
+    },
 
     eyeBtn: { padding: 4, backgroundColor: theme.primaryBg, borderRadius: 6, marginLeft: 6 },
 
@@ -986,5 +1466,34 @@ const getStyles = (theme) => StyleSheet.create({
     modeBadgeText: { fontSize: 11, fontWeight: '800', letterSpacing: 0.5 },
     rateValue: { fontSize: 18, fontWeight: '800', color: theme.textPrimary, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
     infoBox: { marginTop: 16, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: theme.background, padding: 8, borderRadius: 8 },
-    infoBoxText: { fontSize: 11, color: theme.textSecondary, fontWeight: '500' }
+    infoBoxText: { fontSize: 11, color: theme.textSecondary, fontWeight: '500' },
+
+    // Pagination Styles
+    paginationRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: 12,
+        backgroundColor: theme.mode === 'dark' ? 'rgba(255, 255, 255, 0.02)' : '#fcfcfc',
+        borderTopWidth: 1,
+        borderTopColor: theme.cardBorder,
+    },
+    paginationBtn: {
+        paddingVertical: 6,
+        paddingHorizontal: 12,
+        borderRadius: 8,
+        backgroundColor: theme.primaryBg,
+        borderWidth: 1,
+        borderColor: theme.primary + '30',
+    },
+    paginationBtnText: {
+        color: theme.primary,
+        fontSize: 12,
+        fontWeight: '700',
+    },
+    pageIndicatorText: {
+        color: theme.textSecondary,
+        fontSize: 11,
+        fontWeight: '600',
+    },
 });

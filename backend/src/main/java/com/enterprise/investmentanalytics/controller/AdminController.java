@@ -178,9 +178,10 @@ public class AdminController {
         int currentYear = now.getYear();
 
         java.math.BigDecimal currentMonthProfit = monthlyProfitHistoryRepository
-                .findByUserIdAndMonthAndYear(user.getId(), currentMonth, currentYear)
+                .findAllByUserIdAndMonthAndYear(user.getId(), currentMonth, currentYear)
+                .stream()
                 .map(com.enterprise.investmentanalytics.model.entity.MonthlyProfitHistory::getProfitAmount)
-                .orElse(java.math.BigDecimal.ZERO);
+                .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add);
 
         Map<String, Object> response = new HashMap<>();
         // Flatten Portfolio into the response for backward compatibility if possible,
@@ -498,6 +499,8 @@ public class AdminController {
         }
     }
 
+    private final com.enterprise.investmentanalytics.service.S3Service s3Service;
+
     @PostMapping("/payout")
     public ResponseEntity<Map<String, Object>> createPayout(
             @RequestParam("userId") UUID userId,
@@ -505,19 +508,12 @@ public class AdminController {
             @RequestParam(value = "message", required = false) String message,
             @RequestParam("screenshot") org.springframework.web.multipart.MultipartFile screenshot) {
         try {
-            // Save file
-            String fileName = UUID.randomUUID().toString() + "_" + screenshot.getOriginalFilename();
-            java.nio.file.Path uploadPath = java.nio.file.Paths.get("uploads/payouts");
-            if (!java.nio.file.Files.exists(uploadPath)) {
-                java.nio.file.Files.createDirectories(uploadPath);
-            }
-            java.nio.file.Path filePath = uploadPath.resolve(fileName);
-            java.nio.file.Files.copy(screenshot.getInputStream(), filePath,
-                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            // Upload to S3
+            String s3Key = s3Service.uploadFile(screenshot, "payouts");
 
             // Call service
             com.enterprise.investmentanalytics.dto.response.TransactionResponse transaction = transactionService
-                    .createPayout(userId, amount, filePath.toString(), message);
+                    .createPayout(userId, amount, s3Key, message);
 
             Map<String, Object> response = new HashMap<>();
             response.put("success", true);
@@ -688,5 +684,25 @@ public class AdminController {
                 .mediatorName(user.getMediator() != null ? user.getMediator().getName() : null)
                 .mediatorId(user.getMediator() != null ? user.getMediator().getId() : null)
                 .build();
+    }
+
+    private final com.enterprise.investmentanalytics.service.GlobalConfigService globalConfigService;
+
+    @GetMapping("/config")
+    public ResponseEntity<Map<String, String>> getGlobalConfigs() {
+        return ResponseEntity.ok(globalConfigService.getAllConfigs());
+    }
+
+    @PutMapping("/config")
+    public ResponseEntity<?> updateGlobalConfig(@RequestBody Map<String, String> configs) {
+        configs.forEach((key, value) -> {
+            try {
+                globalConfigService.updateValue(key, value);
+            } catch (Exception e) {
+                // Log warning but continue
+                System.err.println("Failed to update config " + key + ": " + e.getMessage());
+            }
+        });
+        return ResponseEntity.ok(java.util.Map.of("message", "Configuration updated successfully"));
     }
 }

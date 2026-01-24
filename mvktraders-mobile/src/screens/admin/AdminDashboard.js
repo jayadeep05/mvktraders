@@ -307,6 +307,14 @@ export default function AdminDashboard({ navigation }) {
                         <Text style={styles.actionSubtext}>Account removal</Text>
                     </TouchableOpacity>
 
+                    <TouchableOpacity style={styles.actionCard} onPress={() => navigation.navigate('AdminProfitSettings')}>
+                        <View style={[styles.actionIconBox, { backgroundColor: theme.primary + '12' }]}>
+                            <Clock size={20} color={theme.primary} />
+                        </View>
+                        <Text style={styles.actionLabel}>Profit Settings</Text>
+                        <Text style={styles.actionSubtext}>Duration & Rates</Text>
+                    </TouchableOpacity>
+
                     <View style={[styles.actionCard, styles.comingSoonCard]}>
                         <View style={[styles.actionIconBox, { backgroundColor: theme.textSecondary + '08' }]}>
                             <Clock size={20} color={theme.textSecondary} />

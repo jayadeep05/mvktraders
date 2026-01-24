@@ -63,7 +63,6 @@ const PayoutModal = ({ show, onClose, onSuccess, userId, clientName, portfolio }
                     },
                     availableProfit: portfolio.availableProfit,
                     totalInvested: portfolio.totalInvested,
-                    totalValue: portfolio.currentValue,
                     profitPercentage: portfolio.profitPercentage || 0,
                     currentMonthProfit: portfolio.currentMonthProfit || 0
                 };
@@ -71,7 +70,16 @@ const PayoutModal = ({ show, onClose, onSuccess, userId, clientName, portfolio }
             } else {
                 // Fallback to API call for Admin
                 const response = await adminService.getClientPortfolio(userId);
-                setClientPortfolio(response);
+                // The API now returns a map { id, user: {...}, currentMonthProfit: 123, ... }
+                // We need to map this flat-ish structure to what PayoutModal expects
+                setClientPortfolio({
+                    user: response.user,
+                    availableProfit: response.availableProfit,
+                    totalInvested: response.totalInvested,
+                    totalValue: response.totalValue,
+                    profitPercentage: response.profitPercentage,
+                    currentMonthProfit: response.currentMonthProfit
+                });
             }
         } catch (err) {
             console.error("Failed to load client details", err);

@@ -143,5 +143,15 @@ export const adminService = {
     updateClientProfitConfig: async (clientId, config) => {
         const response = await apiClient.put(`/admin/client/${clientId}/profit-config`, config);
         return response.data;
+    },
+
+    // Global Configuration
+    getGlobalConfigs: async () => {
+        const response = await apiClient.get('/admin/config');
+        return response.data;
+    },
+    updateGlobalConfigs: async (configs) => {
+        const response = await apiClient.put('/admin/config', configs);
+        return response.data;
     }
 };

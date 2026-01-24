@@ -16,10 +16,13 @@ public class PortfolioService {
 
         private final PortfolioRepository portfolioRepository;
         private final UserRepository userRepository;
+        private final GlobalConfigService globalConfigService;
 
-        public PortfolioService(PortfolioRepository portfolioRepository, UserRepository userRepository) {
+        public PortfolioService(PortfolioRepository portfolioRepository, UserRepository userRepository,
+                        GlobalConfigService globalConfigService) {
                 this.portfolioRepository = portfolioRepository;
                 this.userRepository = userRepository;
+                this.globalConfigService = globalConfigService;
         }
 
         public Portfolio getPortfolioByEmail(String email) {
@@ -38,7 +41,8 @@ public class PortfolioService {
 
         public com.enterprise.investmentanalytics.dto.response.PortfolioDTO getPortfolioDTOByEmail(String email) {
                 Portfolio portfolio = getPortfolioByEmail(email);
-                return com.enterprise.investmentanalytics.dto.response.PortfolioDTO.builder()
+                com.enterprise.investmentanalytics.dto.response.PortfolioDTO portfolioDTO = com.enterprise.investmentanalytics.dto.response.PortfolioDTO
+                                .builder()
                                 .id(portfolio.getId())
                                 .totalValue(portfolio.getTotalValue())
                                 .totalInvested(portfolio.getTotalInvested())
@@ -51,7 +55,47 @@ public class PortfolioService {
                                 .profitModeEffectiveDate(portfolio.getProfitModeEffectiveDate())
                                 .isProrationEnabled(portfolio.getIsProrationEnabled())
                                 .allowEarlyExit(portfolio.getAllowEarlyExit())
+                                .nextEstimatedPayout(calculateNextEstimatedPayout(portfolio))
                                 .build();
+
+                System.out.println("DEBUG: Calculating Payout for " + email);
+                System.out.println("DEBUG: Profit Mode: " + portfolio.getProfitMode());
+                System.out.println("DEBUG: Invested: " + portfolio.getTotalInvested());
+                System.out.println("DEBUG: Total Value: " + portfolio.getTotalValue());
+                System.out.println("DEBUG: Percentage: " + portfolio.getProfitPercentage());
+                System.out.println("DEBUG: Result: " + portfolioDTO.getNextEstimatedPayout());
+
+                return portfolioDTO;
+        }
+
+        private BigDecimal calculateNextEstimatedPayout(Portfolio portfolio) {
+                if (portfolio.getProfitPercentage() == null) {
+                        System.out.println("DEBUG: Profit percentage is null, returning ZERO");
+                        return BigDecimal.ZERO;
+                }
+
+                // For COMPOUNDING mode, calculate based on totalValue (invested + accumulated
+                // profit)
+                // For FIXED mode, calculate based on totalInvested (only initial investment)
+                BigDecimal baseAmount;
+                String mode = portfolio.getProfitMode() != null ? portfolio.getProfitMode().toString() : "NULL";
+
+                if (portfolio.getProfitMode() == com.enterprise.investmentanalytics.model.enums.ProfitMode.COMPOUNDING) {
+                        baseAmount = portfolio.getTotalValue() != null ? portfolio.getTotalValue() : BigDecimal.ZERO;
+                        System.out.println("DEBUG: COMPOUNDING mode - using totalValue: " + baseAmount);
+                } else {
+                        baseAmount = portfolio.getTotalInvested() != null ? portfolio.getTotalInvested()
+                                        : BigDecimal.ZERO;
+                        System.out.println("DEBUG: FIXED mode - using totalInvested: " + baseAmount);
+                }
+
+                BigDecimal result = baseAmount.multiply(portfolio.getProfitPercentage())
+                                .divide(BigDecimal.valueOf(100), 2, java.math.RoundingMode.HALF_UP);
+
+                System.out.println("DEBUG: Mode=" + mode + ", Base=" + baseAmount + ", Rate="
+                                + portfolio.getProfitPercentage() + "%, Result=" + result);
+
+                return result;
         }
 
         public List<Portfolio> getAllPortfolios() {
@@ -71,6 +115,9 @@ public class PortfolioService {
                                                 com.enterprise.investmentanalytics.model.enums.ProfitAccrualStatus.ACTIVE)
                                 .availableProfit(BigDecimal.ZERO)
                                 .totalProfitEarned(BigDecimal.ZERO)
+                                .profitMode(com.enterprise.investmentanalytics.model.enums.ProfitMode.FIXED)
+                                .isProrationEnabled(true)
+                                .allowEarlyExit(false)
                                 .build();
                 return portfolioRepository.save(portfolio);
         }
@@ -210,15 +257,22 @@ public class PortfolioService {
 
                 if (config.getProfitMode() != null) {
                         portfolio.setProfitMode(config.getProfitMode());
-                        // Update effective date to next month's start - simplified assumption for now
-                        // or
-                        // set logic
-                        // Spec says "Change applies from the next profit cycle".
-                        // We can just record the date of change or let the calculation logic decide.
-                        // For now, let's just save the current date as "Effective Date" of the change,
-                        // or maybe the user wants to see "Effective From".
-                        // If we change it today (Jan 12), next cycle is Feb.
                         portfolio.setProfitModeEffectiveDate(java.time.LocalDate.now());
+
+                        // Automatically set the correct profit percentage based on mode
+                        // FIXED: 4% monthly (48% annual)
+                        // COMPOUNDING: ~3.6% monthly (52% annual through compounding)
+                        if (config.getProfitMode() == com.enterprise.investmentanalytics.model.enums.ProfitMode.COMPOUNDING) {
+                                BigDecimal compoundingRate = globalConfigService.getBigDecimal(
+                                                com.enterprise.investmentanalytics.service.GlobalConfigService.COMPOUNDING_MONTHLY_RATE_PERCENT);
+                                portfolio.setProfitPercentage(compoundingRate);
+                                System.out.println("DEBUG: Set COMPOUNDING rate to " + compoundingRate + "%");
+                        } else {
+                                BigDecimal fixedRate = globalConfigService.getBigDecimal(
+                                                com.enterprise.investmentanalytics.service.GlobalConfigService.FIXED_MONTHLY_RATE_PERCENT);
+                                portfolio.setProfitPercentage(fixedRate);
+                                System.out.println("DEBUG: Set FIXED rate to " + fixedRate + "%");
+                        }
                 }
 
                 if (config.getProfitPercentage() != null) {

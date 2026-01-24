@@ -30,6 +30,9 @@ public class GlobalConfigService {
     public static final String USE_ADMIN_APPROVAL_DATE_AS_ENTRY_DATE = "USE_ADMIN_APPROVAL_DATE_AS_ENTRY_DATE";
     public static final String ALLOW_EARLY_EXIT_FOR_COMPOUNDING = "ALLOW_EARLY_EXIT_FOR_COMPOUNDING";
     public static final String EXIT_EFFECTIVE_NEXT_CYCLE = "EXIT_EFFECTIVE_NEXT_CYCLE";
+    public static final String PROFIT_DURATION_VALUE = "PROFIT_DURATION_VALUE";
+    public static final String PROFIT_DURATION_UNIT = "PROFIT_DURATION_UNIT"; // MINUTES, HOURS, DAYS, MONTHS
+    public static final String PROFIT_CALCULATION_MODE = "PROFIT_CALCULATION_MODE"; // PRORATED, FULL_CYCLE
 
     @PostConstruct
     public void initDefaults() {
@@ -45,6 +48,10 @@ public class GlobalConfigService {
         seedIfNotExists(USE_ADMIN_APPROVAL_DATE_AS_ENTRY_DATE, "true", "Use admin approval date as entry date");
         seedIfNotExists(ALLOW_EARLY_EXIT_FOR_COMPOUNDING, "true", "Allow early exit for compounding portfolios");
         seedIfNotExists(EXIT_EFFECTIVE_NEXT_CYCLE, "true", "Exit effective from next cycle");
+        seedIfNotExists(PROFIT_DURATION_VALUE, "1", "Duration value for profit cycle");
+        seedIfNotExists(PROFIT_DURATION_UNIT, "MONTHS",
+                "Duration unit for profit cycle (MINUTES, HOURS, DAYS, MONTHS)");
+        seedIfNotExists(PROFIT_CALCULATION_MODE, "PRORATED", "Calculation mode: PRORATED or FULL_CYCLE");
     }
 
     private void seedIfNotExists(String key, String defaultValue, String description) {

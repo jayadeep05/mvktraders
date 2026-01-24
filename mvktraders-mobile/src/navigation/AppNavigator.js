@@ -18,6 +18,7 @@ import AdminClientDetails from '../screens/admin/AdminClientDetails';
 import AdminCreateUser from '../screens/admin/AdminCreateUser';
 import AdminDeleteRequests from '../screens/admin/AdminDeleteRequests';
 import AdminMediatorDetails from '../screens/admin/AdminMediatorDetails';
+import AdminProfitSettings from '../screens/admin/AdminProfitSettings';
 
 // Client
 import ClientDashboard from '../screens/client/ClientDashboard';
@@ -77,6 +78,7 @@ export default function AppNavigator() {
                         <Stack.Screen name="AdminCreateUser" component={AdminCreateUser} options={{ animation: 'slide_from_right' }} />
                         <Stack.Screen name="AdminDeleteRequests" component={AdminDeleteRequests} options={{ animation: 'slide_from_right' }} />
                         <Stack.Screen name="AdminMediatorDetails" component={AdminMediatorDetails} options={{ animation: 'slide_from_right' }} />
+                        <Stack.Screen name="AdminProfitSettings" component={AdminProfitSettings} options={{ animation: 'slide_from_right' }} />
                         <Stack.Screen name="Profile" component={ProfileScreen} options={{ animation: 'slide_from_right' }} />
                     </>
                 ) : (

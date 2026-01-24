@@ -28,6 +28,7 @@ public class ClientController {
     private final TransactionService transactionService;
     private final WithdrawalService withdrawalService;
     private final com.enterprise.investmentanalytics.service.DepositService depositService;
+    private final com.enterprise.investmentanalytics.repository.MonthlyProfitHistoryRepository monthlyProfitHistoryRepository;
 
     @GetMapping("/dashboard")
     public ResponseEntity<DashboardMetrics> getDashboard(@AuthenticationPrincipal User user) {
@@ -37,6 +38,29 @@ public class ClientController {
     @GetMapping("/transactions")
     public ResponseEntity<List<TransactionResponse>> getTransactions(@AuthenticationPrincipal User user) {
         return ResponseEntity.ok(transactionService.getTransactionsByUserId(user.getId()));
+    }
+
+    @GetMapping("/profit/history")
+    public ResponseEntity<List<com.enterprise.investmentanalytics.dto.response.ProfitHistoryDTO>> getProfitHistory(
+            @AuthenticationPrincipal User user) {
+        List<com.enterprise.investmentanalytics.model.entity.MonthlyProfitHistory> profitHistory = monthlyProfitHistoryRepository
+                .findByUserIdOrderByYearDescMonthDesc(user.getId());
+
+        List<com.enterprise.investmentanalytics.dto.response.ProfitHistoryDTO> dtoList = profitHistory.stream()
+                .map(history -> com.enterprise.investmentanalytics.dto.response.ProfitHistoryDTO.builder()
+                        .month(history.getMonth())
+                        .year(history.getYear())
+                        .profitAmount(history.getProfitAmount())
+                        .profitPercentage(history.getProfitPercentage())
+                        .calculatedAt(history.getCalculatedAt())
+                        .openingBalance(history.getOpeningBalance())
+                        .closingBalance(history.getClosingBalance())
+                        .profitMode(history.getProfitMode())
+                        .isProrated(history.isProrated())
+                        .build())
+                .toList();
+
+        return ResponseEntity.ok(dtoList);
     }
 
     @GetMapping("/analytics")
@@ -75,6 +99,8 @@ public class ClientController {
         return ResponseEntity.ok(withdrawalService.getUserWithdrawalRequests(user.getId()));
     }
 
+    private final com.enterprise.investmentanalytics.service.S3Service s3Service;
+
     @PostMapping(value = "/deposit-request", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<Map<String, Object>> createDepositRequestMultipart(
             @AuthenticationPrincipal User user,
@@ -82,20 +108,13 @@ public class ClientController {
             @RequestParam(value = "note", required = false) String note,
             @RequestParam("screenshot") org.springframework.web.multipart.MultipartFile screenshot) {
         try {
-            // Save file
-            String fileName = java.util.UUID.randomUUID().toString() + "_" + screenshot.getOriginalFilename();
-            java.nio.file.Path uploadPath = java.nio.file.Paths.get("uploads/deposits");
-            if (!java.nio.file.Files.exists(uploadPath)) {
-                java.nio.file.Files.createDirectories(uploadPath);
-            }
-            java.nio.file.Path filePath = uploadPath.resolve(fileName);
-            java.nio.file.Files.copy(screenshot.getInputStream(), filePath,
-                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            // Upload to S3
+            String s3Key = s3Service.uploadFile(screenshot, "deposits");
 
             DepositRequestDTO depositRequest = depositService.createDepositRequest(
                     user.getId(),
                     amount,
-                    filePath.toString(),
+                    s3Key,
                     note);
 
             Map<String, Object> response = new HashMap<>();

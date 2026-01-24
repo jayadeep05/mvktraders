@@ -21,7 +21,8 @@ import {
     ArrowUpRight,
     MapPin,
     Hash,
-    Mail
+    Mail,
+    Info
 } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -40,6 +41,29 @@ export default function AdminApprovals({ navigation }) {
     const [selectedUser, setSelectedUser] = useState(null);
     const [processId, setProcessId] = useState(null);
     const [searchVisible, setSearchVisible] = useState(false);
+
+    // Premium Action Modal State
+    const [actionModalVisible, setActionModalVisible] = useState(false);
+    const [actionConfig, setActionConfig] = useState({
+        title: '',
+        message: '',
+        icon: 'Info',
+        type: 'info', // 'success', 'warning', 'error', 'info'
+        confirmLabel: 'Proceed',
+        onConfirm: () => { }
+    });
+
+    const triggerActionModal = (config) => {
+        setActionConfig({
+            title: config.title || 'Update',
+            message: config.message || '',
+            icon: config.icon || 'Info',
+            type: config.type || 'info',
+            confirmLabel: config.confirmLabel || 'OK',
+            onConfirm: config.onConfirm || (() => setActionModalVisible(false))
+        });
+        setActionModalVisible(true);
+    };
 
     const loadUsers = async () => {
         try {
@@ -67,56 +91,87 @@ export default function AdminApprovals({ navigation }) {
     }, []);
 
     const handleApprove = async (id, name) => {
-        Alert.alert(
-            'Approve User',
-            `Are you sure you want to approve ${name || 'this user'}?`,
-            [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                    text: 'Approve',
-                    onPress: async () => {
-                        try {
-                            setProcessId(id);
-                            await adminService.approveUser(id);
-                            Alert.alert('Success', `${name} approved successfully`);
-                            loadUsers();
-                            setSelectedUser(null);
-                        } catch (error) {
-                            Alert.alert('Error', 'Failed to approve user');
-                        } finally {
-                            setProcessId(null);
-                        }
-                    }
+        triggerActionModal({
+            title: 'Approve User',
+            message: `Are you sure you want to activate ${name || 'this user'}? They will be granted immediate access to the platform.`,
+            icon: 'UserCheck',
+            type: 'success',
+            confirmLabel: 'Confirm Approval',
+            onConfirm: async () => {
+                try {
+                    setActionModalVisible(false);
+                    setProcessId(id);
+                    await adminService.approveUser(id);
+
+                    setTimeout(() => {
+                        triggerActionModal({
+                            title: 'User Verified',
+                            message: `${name} has been successfully promoted to ACTIVE status.`,
+                            icon: 'Check',
+                            type: 'success',
+                            confirmLabel: 'Done',
+                            onConfirm: () => setActionModalVisible(false)
+                        });
+                    }, 500);
+                    loadUsers();
+                    setSelectedUser(null);
+                } catch (error) {
+                    setTimeout(() => {
+                        triggerActionModal({
+                            title: 'Action Failed',
+                            message: 'A network error occurred during the approval process.',
+                            icon: 'XCircle',
+                            type: 'error',
+                            confirmLabel: 'Close'
+                        });
+                    }, 500);
+                } finally {
+                    setProcessId(null);
                 }
-            ]
-        );
+            }
+        });
     };
 
     const handleReject = async (id, name) => {
-        Alert.alert(
-            'Reject User',
-            `Are you sure you want to reject ${name || 'this user'}? This will mark the registration as rejected.`,
-            [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                    text: 'Confirm Reject',
-                    style: 'destructive',
-                    onPress: async () => {
-                        try {
-                            setProcessId(id);
-                            await adminService.rejectUser(id);
-                            Alert.alert('Success', `${name} rejected successfully`);
-                            loadUsers();
-                            setSelectedUser(null);
-                        } catch (error) {
-                            Alert.alert('Error', 'Failed to reject user');
-                        } finally {
-                            setProcessId(null);
-                        }
-                    }
+        triggerActionModal({
+            title: 'Reject Request',
+            message: `Are you certain you want to decline registration for ${name}? This action is logged for security.`,
+            icon: 'UserX',
+            type: 'error',
+            confirmLabel: 'Confirm Reject',
+            onConfirm: async () => {
+                try {
+                    setActionModalVisible(false);
+                    setProcessId(id);
+                    await adminService.rejectUser(id);
+
+                    setTimeout(() => {
+                        triggerActionModal({
+                            title: 'Access Denied',
+                            message: `The registration request for ${name} has been rejected.`,
+                            icon: 'X',
+                            type: 'info',
+                            confirmLabel: 'Done',
+                            onConfirm: () => setActionModalVisible(false)
+                        });
+                    }, 500);
+                    loadUsers();
+                    setSelectedUser(null);
+                } catch (error) {
+                    setTimeout(() => {
+                        triggerActionModal({
+                            title: 'Rejection Failed',
+                            message: 'Could not communicate with the authentication server.',
+                            icon: 'AlertCircle',
+                            type: 'error',
+                            confirmLabel: 'Retry'
+                        });
+                    }, 500);
+                } finally {
+                    setProcessId(null);
                 }
-            ]
-        );
+            }
+        });
     };
 
     const getFilteredData = useCallback((tab) => {
@@ -438,6 +493,73 @@ export default function AdminApprovals({ navigation }) {
                     </View>
                 </View>
             </Modal>
+
+            {/* Premium Action Modal Implementation */}
+            <Modal
+                transparent
+                visible={actionModalVisible}
+                animationType="fade"
+                onRequestClose={() => setActionModalVisible(false)}
+            >
+                <View style={styles.actionModalOverlay}>
+                    <View style={styles.actionCard}>
+                        <View style={[
+                            styles.eliteIconBox,
+                            {
+                                backgroundColor:
+                                    actionConfig.type === 'success' ? '#10b98115' :
+                                        actionConfig.type === 'error' ? '#ef444415' :
+                                            actionConfig.type === 'warning' ? '#f59e0b15' : '#4f46e515'
+                            }
+                        ]}>
+                            {actionConfig.icon === 'UserCheck' && <UserCheck size={36} color="#10b981" />}
+                            {actionConfig.icon === 'UserX' && <UserX size={36} color="#ef4444" />}
+                            {actionConfig.icon === 'Check' && <Check size={36} color="#10b981" />}
+                            {actionConfig.icon === 'X' && <X size={36} color="#ef4444" />}
+                            {actionConfig.icon === 'XCircle' && <XCircle size={36} color="#ef4444" />}
+                            {actionConfig.icon === 'Info' && <Info size={36} color="#4f46e5" />}
+                        </View>
+
+                        <Text style={styles.actionTitle}>{actionConfig.title}</Text>
+                        <Text style={styles.actionMessage}>{actionConfig.message}</Text>
+
+                        <View style={styles.actionBtnGroup}>
+                            {(actionConfig.type === 'warning' || actionConfig.confirmLabel.includes('Confirm')) && (
+                                <TouchableOpacity
+                                    style={styles.actionCancelBtn}
+                                    onPress={() => setActionModalVisible(false)}
+                                >
+                                    <Text style={styles.actionCancelText}>Cancel</Text>
+                                </TouchableOpacity>
+                            )}
+
+                            <TouchableOpacity
+                                style={[
+                                    styles.actionConfirmBtn,
+                                    {
+                                        backgroundColor:
+                                            actionConfig.type === 'success' ? '#10b981' :
+                                                actionConfig.type === 'error' ? '#ef4444' :
+                                                    actionConfig.type === 'warning' ? '#f59e0b' : '#4f46e5'
+                                    }
+                                ]}
+                                onPress={actionConfig.onConfirm}
+                            >
+                                <LinearGradient
+                                    colors={
+                                        actionConfig.type === 'success' ? ['#10b981', '#059669'] :
+                                            actionConfig.type === 'error' ? ['#ef4444', '#dc2626'] :
+                                                actionConfig.type === 'warning' ? ['#f59e0b', '#d97706'] : ['#4f46e5', '#4338ca']
+                                    }
+                                    style={styles.actionConfirmGradient}
+                                >
+                                    <Text style={styles.actionConfirmText}>{actionConfig.confirmLabel}</Text>
+                                </LinearGradient>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
         </SafeAreaView>
     );
 }
@@ -730,5 +852,18 @@ const getStyles = (theme, isDark) => StyleSheet.create({
         borderWidth: 1,
         borderColor: 'transparent'
     },
-    processedText: { fontSize: 15, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 }
+    processedText: { fontSize: 15, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 },
+
+    // Premium Modal Styles
+    actionModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+    actionCard: { width: '100%', maxWidth: 340, backgroundColor: theme.cardBg, borderRadius: 32, padding: 28, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.35, shadowRadius: 24, elevation: 18, borderWidth: 1, borderColor: theme.cardBorder },
+    eliteIconBox: { width: 72, height: 72, borderRadius: 22, justifyContent: 'center', alignItems: 'center', marginBottom: 20 },
+    actionTitle: { fontSize: 22, fontWeight: '800', color: theme.textPrimary, marginBottom: 10, textAlign: 'center' },
+    actionMessage: { fontSize: 14, color: theme.textSecondary, textAlign: 'center', lineHeight: 22, marginBottom: 30, opacity: 0.8 },
+    actionBtnGroup: { flexDirection: 'row', gap: 12, width: '100%' },
+    actionCancelBtn: { flex: 1, height: 56, borderRadius: 18, justifyContent: 'center', alignItems: 'center', backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#f3f4f6', borderWidth: 1, borderColor: theme.cardBorder },
+    actionCancelText: { color: theme.textSecondary, fontWeight: '700', fontSize: 15 },
+    actionConfirmBtn: { flex: 2, height: 56, borderRadius: 18, overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 4 },
+    actionConfirmGradient: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+    actionConfirmText: { color: '#fff', fontWeight: '800', fontSize: 15, letterSpacing: 0.3 }
 });
